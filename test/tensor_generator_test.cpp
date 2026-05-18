@@ -60,7 +60,7 @@ static std::string shape_str(torch::IntArrayRef shape) {
 }
 
 // ============================================================
-// Parameterized test: Shape × DType × Config cartesian product
+// Parameterized test: Shape x DType x Config cartesian product
 // ============================================================
 
 struct CartesianTestParam {
@@ -82,14 +82,14 @@ TEST_P(CartesianTest, GenerateAndVerify) {
                      << dtype_name(param.dtype);
     }
 
-    torch::manual_seed(42 + param.config_idx * 1000 +
-                       (int)param.dtype * 100 + param.shape.back());
+    int64_t seed = 42 + param.config_idx * 1000 +
+                   (int)param.dtype * 100 + param.shape.back();
 
     torch::IntArrayRef shape(param.shape);
     torch::Tensor t;
 
     // Should not throw
-    ASSERT_NO_THROW(t = generate_tensor(shape, param.dtype, cfg.spec))
+    ASSERT_NO_THROW(t = generate_tensor(shape, param.dtype, cfg.spec, cfg.base_dist, seed))
         << "Failed for shape=" << shape_str(shape)
         << " dtype=" << dtype_name(param.dtype)
         << " config=" << cfg.name;
@@ -118,7 +118,7 @@ TEST_P(CartesianTest, GenerateAndVerify) {
 
     // For integer/fp8/bool dtypes with continuous parts, continuous values quantized
     // to the low-resolution dtype may coincidentally equal a discrete value.
-    // In that case the observed count is higher than expected → only check lower bound.
+    // In that case the observed count is higher than expected -> only check lower bound.
     bool low_resolution_dtype = is_int_type(param.dtype) || param.dtype == torch::kBool ||
         param.dtype == torch::kFloat8_e4m3fn || param.dtype == torch::kFloat8_e5m2;
     bool relaxed_verification = low_resolution_dtype && has_continuous;
@@ -180,12 +180,12 @@ TEST_P(CartesianTest, GenerateAndVerify) {
             }
         } else if (g.total_prob >= 1.0 - 1e-9) {
             EXPECT_EQ(count, N)
-                << "With p≈1.0, all elements should match. dtype="
+                << "With p=1.0, all elements should match. dtype="
                 << dtype_name(param.dtype) << " config=" << cfg.name;
         }
     }
 
-    // If all_discrete (p_sum ≈ 1.0), verify no "leak" elements
+    // If all_discrete (p_sum ~ 1.0), verify no "leak" elements
     if (p_sum >= 1.0 - 1e-9 && N >= 1000) {
         int64_t total_discrete = 0;
         for (auto& g : groups) {
@@ -318,7 +318,6 @@ TEST(EdgeCase, EmptyTensor) {
 }
 
 TEST(EdgeCase, SingleElementAllDiscrete) {
-    // p=1.0 with N=1: must always produce the expected value
     for (int trial = 0; trial < 100; ++trial) {
         auto t = generate_tensor({1}, torch::kFloat32, {{SpecialValue::NaN, 1.0}});
         EXPECT_TRUE(std::isnan(t.item<float>()));
@@ -326,12 +325,12 @@ TEST(EdgeCase, SingleElementAllDiscrete) {
 }
 
 TEST(EdgeCase, SingleElementMixed) {
-    // N=1, p=0.5: should produce either Zero or continuous value
-    torch::manual_seed(42);
     int zero_count = 0;
     for (int trial = 0; trial < 1000; ++trial) {
         auto t = generate_tensor({1}, torch::kFloat32,
-            TensorSpec{{SpecialValue::Zero, 0.5}}.with_uniform(1.0, 2.0));
+            {{SpecialValue::Zero, 0.5}},
+            BaseDist::uniform(1.0, 2.0),
+            42 + trial);
         float val = t.item<float>();
         if (val == 0.0f) {
             zero_count++;
@@ -340,13 +339,11 @@ TEST(EdgeCase, SingleElementMixed) {
             EXPECT_LE(val, 2.0f);
         }
     }
-    // Expect ~500 zeros (5σ tolerance: ±56)
     EXPECT_GT(zero_count, 400);
     EXPECT_LT(zero_count, 600);
 }
 
 TEST(EdgeCase, ZeroProbabilityEntries) {
-    // Entries with p=0 should be skipped
     auto t = generate_tensor({1000}, torch::kFloat32,
         {{SpecialValue::NaN, 0.0}, {SpecialValue::One, 1.0}});
     EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 0);
@@ -355,17 +352,16 @@ TEST(EdgeCase, ZeroProbabilityEntries) {
 
 TEST(EdgeCase, EmptyDiscreteList) {
     auto t = generate_tensor({1000}, torch::kFloat32,
-        TensorSpec{}.with_uniform(0.0, 1.0));
+        TensorSpec{}, BaseDist::uniform(0.0, 1.0), 123);
     EXPECT_GE(t.min().item<float>(), 0.0f);
     EXPECT_LE(t.max().item<float>(), 1.0f);
 }
 
 TEST(EdgeCase, VerySmallProbability) {
-    torch::manual_seed(77);
-    // p=0.001 with N=1M → expect ~1000 hits
     const int64_t N = 1000000;
     auto t = generate_tensor({N}, torch::kFloat32,
-        TensorSpec{{SpecialValue::Infinity, 0.001}}.with_uniform(-1.0, 1.0));
+        {{SpecialValue::Infinity, 0.001}},
+        BaseDist::uniform(-1.0, 1.0), 77);
     auto inf_count = (t == std::numeric_limits<float>::infinity()).sum().item<int64_t>();
     assert_probability(inf_count, N, 0.001);
 }
@@ -389,9 +385,8 @@ TEST(UInt8Specific, DTypeMinIs0_DTypeMaxIs255) {
 }
 
 TEST(UInt8Specific, ContinuousClampedTo0_255) {
-    torch::manual_seed(333);
     auto t = generate_tensor({10000}, torch::kUInt8,
-        TensorSpec{}.with_uniform(0.0, 256.0));
+        TensorSpec{}, BaseDist::uniform(0.0, 256.0), 333);
     auto t64 = t.to(torch::kFloat64);
     EXPECT_GE(t64.min().item<double>(), 0.0);
     EXPECT_LE(t64.max().item<double>(), 255.0);
@@ -416,11 +411,11 @@ TEST(UInt16Specific, DTypeMinIs0_DTypeMaxIs65535) {
 }
 
 TEST(UInt16Specific, AllDiscreteNoleak) {
-    torch::manual_seed(555);
     auto t = generate_tensor({50000}, c10::ScalarType::UInt16,
         {{SpecialValue::Zero, 0.3},
          {SpecialValue::One, 0.3},
-         {SpecialValue::DTypeMax, 0.4}});
+         {SpecialValue::DTypeMax, 0.4}},
+        {}, 555);
     auto t64 = t.to(torch::kFloat64);
     auto total = (t64 == 0).sum().item<int64_t>() +
                  (t64 == 1).sum().item<int64_t>() +
@@ -447,14 +442,13 @@ TEST(UInt32Specific, DTypeMinIs0_DTypeMaxIs4294967295) {
 }
 
 TEST(UInt32Specific, AllDiscreteNoleak) {
-    torch::manual_seed(666);
     auto t = generate_tensor({50000}, c10::ScalarType::UInt32,
         {{SpecialValue::Zero, 0.25},
          {SpecialValue::One, 0.25},
          {SpecialValue::NegativeOne, 0.25},
-         {SpecialValue::DTypeMax, 0.25}});
+         {SpecialValue::DTypeMax, 0.25}},
+        {}, 666);
     auto t64 = t.to(torch::kFloat64);
-    // NegativeOne and DTypeMax are both 4294967295 for uint32
     auto total = (t64 == 0).sum().item<int64_t>() +
                  (t64 == 1).sum().item<int64_t>() +
                  (t64 == 4294967295.0).sum().item<int64_t>();
@@ -470,9 +464,9 @@ TEST(UInt64Specific, DTypeMinIs0) {
 }
 
 TEST(UInt64Specific, ZeroAndOne) {
-    torch::manual_seed(777);
     auto t = generate_tensor({50000}, c10::ScalarType::UInt64,
-        {{SpecialValue::Zero, 0.5}, {SpecialValue::One, 0.5}});
+        {{SpecialValue::Zero, 0.5}, {SpecialValue::One, 0.5}},
+        {}, 777);
     auto t64 = t.to(torch::kFloat64);
     auto zero_count = (t64 == 0).sum().item<int64_t>();
     auto one_count = (t64 == 1).sum().item<int64_t>();
@@ -555,7 +549,8 @@ TEST(IntBoundary, Int64MinMax) {
 // --- Bool dtype tests ---
 TEST(BoolDType, ZeroIsFalseOneIsTrue) {
     auto t = generate_tensor({1000}, torch::kBool,
-        {{SpecialValue::Zero, 0.5}, {SpecialValue::One, 0.5}});
+        {{SpecialValue::Zero, 0.5}, {SpecialValue::One, 0.5}},
+        {}, 42);
     auto true_count = t.sum().item<int64_t>();
     assert_probability(true_count, 1000, 0.5);
 }
@@ -569,12 +564,12 @@ TEST(BoolDType, DTypeMinFalse_DTypeMaxTrue) {
 
 // --- Large-scale performance sanity ---
 TEST(Performance, FourMillionFloat32) {
-    torch::manual_seed(999);
     auto t = generate_tensor({4000000}, torch::kFloat32,
         TensorSpec{{SpecialValue::Zero, 0.1},
                    {SpecialValue::NaN, 0.05},
                    {SpecialValue::Infinity, 0.02},
-                   {SpecialValue::DTypeMin, 0.03}}.with_uniform(-100.0, 100.0));
+                   {SpecialValue::DTypeMin, 0.03}},
+        BaseDist::uniform(-100.0, 100.0), 999);
 
     EXPECT_EQ(t.numel(), 4000000);
     auto nan_count = torch::isnan(t).sum().item<int64_t>();
@@ -584,11 +579,11 @@ TEST(Performance, FourMillionFloat32) {
 }
 
 TEST(Performance, FourMillionInt64) {
-    torch::manual_seed(1000);
     auto t = generate_tensor({4000000}, torch::kInt64,
         TensorSpec{{SpecialValue::Zero, 0.2},
                    {SpecialValue::DTypeMax, 0.1},
-                   {SpecialValue::NegativeOne, 0.1}}.with_uniform(-1000.0, 1000.0));
+                   {SpecialValue::NegativeOne, 0.1}},
+        BaseDist::uniform(-1000.0, 1000.0), 1000);
 
     EXPECT_EQ(t.numel(), 4000000);
     auto zero_count = (t == 0).sum().item<int64_t>();
@@ -597,19 +592,17 @@ TEST(Performance, FourMillionInt64) {
 
 // --- Continuous distribution property tests ---
 TEST(ContinuousDist, UniformRange) {
-    torch::manual_seed(1111);
     auto t = generate_tensor({500000}, torch::kFloat32,
-        TensorSpec{}.with_uniform(-7.5, 3.5));
+        TensorSpec{}, BaseDist::uniform(-7.5, 3.5), 1111);
     EXPECT_GE(t.min().item<float>(), -7.5f);
     EXPECT_LE(t.max().item<float>(), 3.5f);
     float mean = t.mean().item<float>();
-    EXPECT_NEAR(mean, -2.0f, 0.05f);  // expected mean of U(-7.5, 3.5) = -2.0
+    EXPECT_NEAR(mean, -2.0f, 0.05f);
 }
 
 TEST(ContinuousDist, NormalMeanStd) {
-    torch::manual_seed(2222);
     auto t = generate_tensor({500000}, torch::kFloat64,
-        TensorSpec{}.with_normal(5.0, 3.0));
+        TensorSpec{}, BaseDist::normal(5.0, 3.0), 2222);
     double mean = t.mean().item<double>();
     double std_val = t.std().item<double>();
     EXPECT_NEAR(mean, 5.0, 0.03);
@@ -618,14 +611,13 @@ TEST(ContinuousDist, NormalMeanStd) {
 
 // --- All-discrete leakage test (the critical floating-point edge case) ---
 TEST(AllDiscrete, NoLeakageMultipleTrials) {
-    // Run 50 trials to stress the floating-point boundary
     for (int trial = 0; trial < 50; ++trial) {
-        torch::manual_seed(trial * 7);
         auto t = generate_tensor({100000}, torch::kFloat32,
             {{SpecialValue::Zero, 0.1},
              {SpecialValue::One, 0.2},
              {SpecialValue::NegativeOne, 0.3},
-             {SpecialValue::DTypeMax, 0.4}});
+             {SpecialValue::DTypeMax, 0.4}},
+            {}, trial * 7);
 
         auto total = (t == 0).sum().item<int64_t>() +
                      (t == 1).sum().item<int64_t>() +
@@ -637,15 +629,13 @@ TEST(AllDiscrete, NoLeakageMultipleTrials) {
 }
 
 TEST(AllDiscrete, NoLeakageWithFloatingProbs) {
-    // 0.1 + 0.2 + 0.3 + 0.4 should sum to 1.0 but floating-point
-    // addition may not be exact: 0.1+0.2 = 0.30000000000000004 in float64
     for (int trial = 0; trial < 50; ++trial) {
-        torch::manual_seed(1000 + trial);
         auto t = generate_tensor({50000}, torch::kInt32,
             {{SpecialValue::Zero, 0.1},
              {SpecialValue::One, 0.2},
              {SpecialValue::NegativeOne, 0.3},
-             {SpecialValue::DTypeMin, 0.4}});
+             {SpecialValue::DTypeMin, 0.4}},
+            {}, 1000 + trial);
 
         auto total = (t == 0).sum().item<int64_t>() +
                      (t == 1).sum().item<int64_t>() +
@@ -654,6 +644,25 @@ TEST(AllDiscrete, NoLeakageWithFloatingProbs) {
         EXPECT_EQ(total, 50000)
             << "Leakage detected at trial " << trial;
     }
+}
+
+// --- Seed reproducibility test ---
+TEST(Seed, SameSeedProducesSameResult) {
+    auto t1 = generate_tensor({1000}, torch::kFloat32,
+        TensorSpec{{SpecialValue::Zero, 0.3}},
+        BaseDist::uniform(-5.0, 5.0), 12345);
+    auto t2 = generate_tensor({1000}, torch::kFloat32,
+        TensorSpec{{SpecialValue::Zero, 0.3}},
+        BaseDist::uniform(-5.0, 5.0), 12345);
+    EXPECT_TRUE(torch::equal(t1, t2));
+}
+
+TEST(Seed, DifferentSeedProducesDifferentResult) {
+    auto t1 = generate_tensor({1000}, torch::kFloat32,
+        TensorSpec{}, BaseDist::uniform(0.0, 1.0), 111);
+    auto t2 = generate_tensor({1000}, torch::kFloat32,
+        TensorSpec{}, BaseDist::uniform(0.0, 1.0), 222);
+    EXPECT_FALSE(torch::equal(t1, t2));
 }
 
 // ============================================================

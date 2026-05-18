@@ -29,9 +29,26 @@ There are no circular dependencies.
 
 ---
 
+## Public API
+
+```cpp
+torch::Tensor generate_tensor(
+    torch::IntArrayRef shape,
+    torch::ScalarType dtype,
+    const TensorSpec& spec,
+    const BaseDist& base_dist = {},            // default: Uniform(-1, 1)
+    std::optional<int64_t> seed = std::nullopt);
+```
+
+`TensorSpec` contains only discrete entries. `BaseDist` is a separate parameter
+controlling the continuous base distribution. `seed` enables reproducibility
+without requiring the caller to manage global RNG state.
+
+---
+
 ## The "Base Layer + Mask Overlay" Algorithm
 
-`generate_tensor(shape, dtype, spec)` works in three phases:
+`generate_tensor(shape, dtype, spec, base_dist, seed)` works in three phases:
 
 ### Phase 1 — Base Tensor
 

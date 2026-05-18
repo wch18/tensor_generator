@@ -2,9 +2,9 @@
 
 // test_configs.h — shared test configuration for tensor_generator tests.
 //
-// Provides TestConfig (pairing a TensorSpec with a dtype compatibility
-// predicate), and the three factory functions used to drive the cartesian
-// product parameterised suite:
+// Provides TestConfig (pairing a TensorSpec + BaseDist with a dtype
+// compatibility predicate), and the three factory functions used to drive
+// the cartesian product parameterised suite:
 //   get_all_configs()  — all TensorSpec scenarios under test
 //   get_all_shapes()   — shape list covering 1-D through 5-D and large sizes
 //   get_all_dtypes()   — every dtype supported by tensor_generator
@@ -46,6 +46,7 @@ static bool is_unsigned_type(torch::ScalarType dt) {
 struct TestConfig {
     std::string name;
     TensorSpec spec;
+    BaseDist base_dist;
     // Predicate: is this config compatible with a given dtype?
     bool (*is_compatible)(torch::ScalarType);
 };
@@ -68,70 +69,86 @@ static std::vector<TestConfig> get_all_configs() {
     return {
         {"all_zeros",
          TensorSpec{{SpecialValue::Zero, 1.0}},
+         {},
          compat_all},
 
         {"all_ones",
          TensorSpec{{SpecialValue::One, 1.0}},
+         {},
          compat_all},
 
         {"half_zero_half_one",
          TensorSpec{{SpecialValue::Zero, 0.5}, {SpecialValue::One, 0.5}},
+         {},
          compat_all},
 
         {"min_max_zero",
          TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::DTypeMin, 0.3}, {SpecialValue::DTypeMax, 0.4}},
+         {},
          compat_all},
 
         {"neg1_min_max",
          TensorSpec{{SpecialValue::NegativeOne, 0.4}, {SpecialValue::DTypeMin, 0.3}, {SpecialValue::DTypeMax, 0.3}},
+         {},
          compat_all},
 
         {"discrete_plus_uniform",
-         TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::DTypeMax, 0.1}}.with_uniform(-10.0, 10.0),
+         TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::DTypeMax, 0.1}},
+         BaseDist::uniform(-10.0, 10.0),
          compat_non_bool},
 
         {"discrete_plus_normal",
-         TensorSpec{{SpecialValue::Zero, 0.2}, {SpecialValue::One, 0.1}}.with_normal(0.0, 5.0),
+         TensorSpec{{SpecialValue::Zero, 0.2}, {SpecialValue::One, 0.1}},
+         BaseDist::normal(0.0, 5.0),
          compat_non_bool},
 
         {"float_specials",
          TensorSpec{{SpecialValue::NaN, 0.2}, {SpecialValue::Infinity, 0.15},
                     {SpecialValue::NegativeInfinity, 0.15}, {SpecialValue::Epsilon, 0.1},
-                    {SpecialValue::Tiny, 0.1}}.with_uniform(-1.0, 1.0),
+                    {SpecialValue::Tiny, 0.1}},
+         BaseDist::uniform(-1.0, 1.0),
          compat_float_with_inf},
 
         {"float_no_inf",
          TensorSpec{{SpecialValue::NaN, 0.2}, {SpecialValue::Epsilon, 0.2},
-                    {SpecialValue::Tiny, 0.2}, {SpecialValue::DTypeMax, 0.2}}.with_uniform(-1.0, 1.0),
+                    {SpecialValue::Tiny, 0.2}, {SpecialValue::DTypeMax, 0.2}},
+         BaseDist::uniform(-1.0, 1.0),
          compat_float_only},
 
         {"rare_event",
-         TensorSpec{{SpecialValue::DTypeMax, 0.01}, {SpecialValue::Zero, 0.01}}.with_uniform(-1.0, 1.0),
+         TensorSpec{{SpecialValue::DTypeMax, 0.01}, {SpecialValue::Zero, 0.01}},
+         BaseDist::uniform(-1.0, 1.0),
          compat_non_bool},
 
         {"heavy_discrete",
          TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::One, 0.3},
-                    {SpecialValue::NegativeOne, 0.3}}.with_uniform(-100.0, 100.0),
+                    {SpecialValue::NegativeOne, 0.3}},
+         BaseDist::uniform(-100.0, 100.0),
          compat_non_bool},
 
         {"int_boundary",
          TensorSpec{{SpecialValue::DTypeMin, 0.5}, {SpecialValue::DTypeMax, 0.5}},
+         {},
          compat_int_only},
 
         {"pure_continuous",
-         TensorSpec{}.with_uniform(-5.0, 5.0),
+         TensorSpec{},
+         BaseDist::uniform(-5.0, 5.0),
          compat_non_bool},
 
         {"all_nan",
          TensorSpec{{SpecialValue::NaN, 1.0}},
+         {},
          compat_float_only},
 
         {"all_dtypemin",
          TensorSpec{{SpecialValue::DTypeMin, 1.0}},
+         {},
          compat_all},
 
         {"all_dtypemax",
          TensorSpec{{SpecialValue::DTypeMax, 1.0}},
+         {},
          compat_all},
     };
 }

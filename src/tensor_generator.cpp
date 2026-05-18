@@ -65,10 +65,15 @@ static void safe_masked_fill(torch::Tensor& result, const torch::Tensor& mask,
 torch::Tensor generate_tensor(
     torch::IntArrayRef shape,
     torch::ScalarType dtype,
-    const TensorSpec& spec)
+    const TensorSpec& spec,
+    const BaseDist& base_dist,
+    std::optional<int64_t> seed)
 {
+    if (seed.has_value()) {
+        torch::manual_seed(seed.value());
+    }
+
     auto& discrete = spec.discrete;
-    auto& base_dist = spec.base_dist;
 
     double p_sum = 0.0;
     for (auto& e : discrete) {

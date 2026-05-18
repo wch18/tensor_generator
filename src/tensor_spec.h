@@ -2,49 +2,59 @@
 
 // tensor_spec.h — declarative specification for tensor content generation.
 //
-// TensorSpec describes the discrete probability distribution used to fill a
-// tensor: a list of DiscreteEntry items, each pairing a SpecialValue with its
-// probability mass (must sum to <= 1.0).
+// TensorSpec: discrete distribution (list of SpecialValue + probability pairs).
+// BaseDist: continuous/integer base distribution, supports torch::Generator.
 //
-// BaseDist describes the continuous base distribution that receives the
-// remaining probability mass (1 - sum_of_discrete_probabilities). It is
-// supplied separately to generate_tensor() rather than embedded in TensorSpec.
-//
-// Usage examples:
-//
-//   // 100% NaN (float-only)
-//   TensorSpec{{SpecialValue::NaN, 1.0}}
-//
-//   // 30% zeros, 70% uniform in [-1, 1] (default base dist)
-//   TensorSpec{{SpecialValue::Zero, 0.3}}
-//
-//   // 20% NaN, 10% +inf, rest uniform in [-5, 5]
-//   generate_tensor(shape, dtype,
-//       TensorSpec{{SpecialValue::NaN, 0.2}, {SpecialValue::Infinity, 0.1}},
-//       BaseDist::uniform(-5.0, 5.0))
-//
-//   // Pure normal distribution, no discrete mass
-//   generate_tensor(shape, dtype, TensorSpec{}, BaseDist::normal(0.0, 1.0))
+// BaseDist can be implicitly constructed from a torch::Generator, yielding
+// a default Uniform(-1, 1) with that generator attached.
 
 #include "special_value.h"
 #include <initializer_list>
 #include <vector>
 
-namespace tgen {
-
-enum class BaseDistType { Uniform, Normal };
+enum class BaseDistType { Uniform, Normal, RandInt };
 
 struct BaseDist {
     BaseDistType type = BaseDistType::Uniform;
-    double param1 = -1.0;  // uniform: low,  normal: mean
-    double param2 = 1.0;   // uniform: high, normal: std
+    double param1 = -1.0;  // uniform: low,  normal: mean, randint: low (inclusive)
+    double param2 = 1.0;   // uniform: high, normal: std,  randint: high (exclusive)
+    torch::Generator generator;
+
+    BaseDist() = default;
+
+    // Implicit conversion from Generator: default Uniform(-1, 1) with generator
+    BaseDist(torch::Generator gen)
+        : type(BaseDistType::Uniform), param1(-1.0), param2(1.0),
+          generator(std::move(gen)) {}
 
     static BaseDist uniform(double lo, double hi) {
-        return {BaseDistType::Uniform, lo, hi};
+        BaseDist d;
+        d.type = BaseDistType::Uniform;
+        d.param1 = lo;
+        d.param2 = hi;
+        return d;
     }
 
     static BaseDist normal(double mean, double std) {
-        return {BaseDistType::Normal, mean, std};
+        BaseDist d;
+        d.type = BaseDistType::Normal;
+        d.param1 = mean;
+        d.param2 = std;
+        return d;
+    }
+
+    static BaseDist randint(int64_t lo, int64_t hi) {
+        BaseDist d;
+        d.type = BaseDistType::RandInt;
+        d.param1 = (double)lo;
+        d.param2 = (double)hi;
+        return d;
+    }
+
+    BaseDist with_generator(torch::Generator gen) const {
+        BaseDist copy = *this;
+        copy.generator = std::move(gen);
+        return copy;
     }
 };
 
@@ -64,5 +74,3 @@ struct TensorSpec {
     explicit TensorSpec(std::vector<DiscreteEntry> entries)
         : discrete(std::move(entries)) {}
 };
-
-} // namespace tgen

@@ -7,8 +7,6 @@
 #include <vector>
 #include <sstream>
 
-using namespace tgen;
-
 // ============================================================
 // Helpers
 // ============================================================
@@ -18,13 +16,12 @@ static void assert_probability(int64_t count, int64_t total, double expected_pro
     if (total == 0) return;
     double expected = total * expected_prob;
     double stddev = std::sqrt(total * expected_prob * (1.0 - expected_prob));
-    // For very small expected counts, use wider tolerance
     double lo = expected - std::max(sigma_tolerance * stddev, 3.0);
     double hi = expected + std::max(sigma_tolerance * stddev, 3.0);
     EXPECT_GE(count, (int64_t)std::floor(lo))
-        << "count=" << count << " expected≈" << expected << " (p=" << expected_prob << ")";
+        << "count=" << count << " expected~" << expected << " (p=" << expected_prob << ")";
     EXPECT_LE(count, (int64_t)std::ceil(hi))
-        << "count=" << count << " expected≈" << expected << " (p=" << expected_prob << ")";
+        << "count=" << count << " expected~" << expected << " (p=" << expected_prob << ")";
 }
 
 static std::string dtype_name(torch::ScalarType dt) {
@@ -76,7 +73,6 @@ TEST_P(CartesianTest, GenerateAndVerify) {
     auto configs = get_all_configs();
     auto& cfg = configs[param.config_idx];
 
-    // Skip if config not compatible with this dtype
     if (!cfg.is_compatible(param.dtype)) {
         GTEST_SKIP() << "Config '" << cfg.name << "' not compatible with "
                      << dtype_name(param.dtype);
@@ -88,42 +84,32 @@ TEST_P(CartesianTest, GenerateAndVerify) {
     torch::IntArrayRef shape(param.shape);
     torch::Tensor t;
 
-    // Should not throw
     ASSERT_NO_THROW(t = generate_tensor(shape, param.dtype, cfg.spec, cfg.base_dist, seed))
         << "Failed for shape=" << shape_str(shape)
         << " dtype=" << dtype_name(param.dtype)
         << " config=" << cfg.name;
 
-    // Verify shape
     ASSERT_EQ(t.dim(), (int64_t)param.shape.size());
     for (size_t i = 0; i < param.shape.size(); ++i) {
         ASSERT_EQ(t.size(i), param.shape[i]);
     }
-
-    // Verify dtype
     ASSERT_EQ(t.scalar_type(), param.dtype);
 
     int64_t N = t.numel();
     if (N == 0) return;
 
-    // Convert to float64 for analysis (handles all types)
     auto tf = t.to(torch::kFloat64);
 
-    // Verify discrete values are correctly represented
     double p_sum = 0.0;
     for (auto& entry : cfg.spec.discrete) {
         p_sum += entry.probability;
     }
     bool has_continuous = (p_sum < 1.0 - 1e-9);
 
-    // For integer/fp8/bool dtypes with continuous parts, continuous values quantized
-    // to the low-resolution dtype may coincidentally equal a discrete value.
-    // In that case the observed count is higher than expected -> only check lower bound.
     bool low_resolution_dtype = is_int_type(param.dtype) || param.dtype == torch::kBool ||
         param.dtype == torch::kFloat8_e4m3fn || param.dtype == torch::kFloat8_e5m2;
     bool relaxed_verification = low_resolution_dtype && has_continuous;
 
-    // Group entries by actual value to handle aliasing (e.g. Zero=DTypeMin for unsigned)
     struct ValueGroup {
         double value;
         double total_prob;
@@ -185,7 +171,6 @@ TEST_P(CartesianTest, GenerateAndVerify) {
         }
     }
 
-    // If all_discrete (p_sum ~ 1.0), verify no "leak" elements
     if (p_sum >= 1.0 - 1e-9 && N >= 1000) {
         int64_t total_discrete = 0;
         for (auto& g : groups) {
@@ -205,7 +190,6 @@ TEST_P(CartesianTest, GenerateAndVerify) {
     }
 }
 
-// Generate the full cartesian product of parameters
 static std::vector<CartesianTestParam> generate_cartesian_params() {
     auto shapes = get_all_shapes();
     auto dtypes = get_all_dtypes();
@@ -215,7 +199,6 @@ static std::vector<CartesianTestParam> generate_cartesian_params() {
     for (auto& shape : shapes) {
         for (auto dtype : dtypes) {
             for (int ci = 0; ci < (int)configs.size(); ++ci) {
-                // Only include if config is compatible
                 if (configs[ci].is_compatible(dtype)) {
                     params.push_back(CartesianTestParam{shape, dtype, ci});
                 }
@@ -225,7 +208,6 @@ static std::vector<CartesianTestParam> generate_cartesian_params() {
     return params;
 }
 
-// Custom test name for readability
 struct CartesianTestNameGenerator {
     std::string operator()(const ::testing::TestParamInfo<CartesianTestParam>& info) const {
         auto& p = info.param;
@@ -246,7 +228,7 @@ INSTANTIATE_TEST_SUITE_P(
     CartesianTestNameGenerator());
 
 // ============================================================
-// Focused unit tests (non-parameterized, for specific edge cases)
+// Focused unit tests
 // ============================================================
 
 // --- Validation tests ---
@@ -272,9 +254,9 @@ TEST(Validation, FloatOnlyValues) {
 }
 
 TEST(Validation, InfinityE4M3) {
-    EXPECT_FALSE(is_valid_for_dtype(SpecialValue::Infinity, torch::kFloat8_e4m3fn));
-    EXPECT_FALSE(is_valid_for_dtype(SpecialValue::NegativeInfinity, torch::kFloat8_e4m3fn));
-    EXPECT_TRUE(is_valid_for_dtype(SpecialValue::Infinity, torch::kFloat8_e5m2));
+    EXPECT_FALSE(is_valid_for_dtype(SpecialValue::Inf, torch::kFloat8_e4m3fn));
+    EXPECT_FALSE(is_valid_for_dtype(SpecialValue::NInf, torch::kFloat8_e4m3fn));
+    EXPECT_TRUE(is_valid_for_dtype(SpecialValue::Inf, torch::kFloat8_e5m2));
     EXPECT_TRUE(is_valid_for_dtype(SpecialValue::NaN, torch::kFloat8_e4m3fn));
 }
 
@@ -285,7 +267,7 @@ TEST(ErrorHandling, NaNOnInteger) {
 }
 
 TEST(ErrorHandling, InfOnE4M3) {
-    EXPECT_THROW(generate_tensor({10}, torch::kFloat8_e4m3fn, {{SpecialValue::Infinity, 0.1}}),
+    EXPECT_THROW(generate_tensor({10}, torch::kFloat8_e4m3fn, {{SpecialValue::Inf, 0.1}}),
                  std::invalid_argument);
 }
 
@@ -301,12 +283,22 @@ TEST(ErrorHandling, ProbExceedsOne) {
 }
 
 TEST(ErrorHandling, InfOnBool) {
-    EXPECT_THROW(generate_tensor({10}, torch::kBool, {{SpecialValue::Infinity, 0.1}}),
+    EXPECT_THROW(generate_tensor({10}, torch::kBool, {{SpecialValue::Inf, 0.1}}),
                  std::invalid_argument);
 }
 
 TEST(ErrorHandling, EpsilonOnInt) {
     EXPECT_THROW(generate_tensor({10}, torch::kInt64, {{SpecialValue::Epsilon, 0.1}}),
+                 std::invalid_argument);
+}
+
+TEST(ErrorHandling, RandIntOnFloat) {
+    EXPECT_THROW(generate_tensor({10}, torch::kFloat32, TensorSpec{}, BaseDist::randint(0, 10)),
+                 std::invalid_argument);
+}
+
+TEST(ErrorHandling, RandIntOnBool) {
+    EXPECT_THROW(generate_tensor({10}, torch::kBool, TensorSpec{}, BaseDist::randint(0, 2)),
                  std::invalid_argument);
 }
 
@@ -360,16 +352,98 @@ TEST(EdgeCase, EmptyDiscreteList) {
 TEST(EdgeCase, VerySmallProbability) {
     const int64_t N = 1000000;
     auto t = generate_tensor({N}, torch::kFloat32,
-        {{SpecialValue::Infinity, 0.001}},
+        {{SpecialValue::Inf, 0.001}},
         BaseDist::uniform(-1.0, 1.0), 77);
     auto inf_count = (t == std::numeric_limits<float>::infinity()).sum().item<int64_t>();
     assert_probability(inf_count, N, 0.001);
 }
 
+// --- RandInt tests ---
+TEST(RandInt, Int32Range) {
+    auto t = generate_tensor({100000}, torch::kInt32,
+        TensorSpec{}, BaseDist::randint(-50, 50), 42);
+    auto t64 = t.to(torch::kFloat64);
+    EXPECT_GE(t64.min().item<double>(), -50.0);
+    EXPECT_LE(t64.max().item<double>(), 49.0);
+}
+
+TEST(RandInt, Int64Range) {
+    auto t = generate_tensor({100000}, torch::kInt64,
+        TensorSpec{}, BaseDist::randint(0, 1000), 43);
+    EXPECT_GE(t.min().item<int64_t>(), 0);
+    EXPECT_LE(t.max().item<int64_t>(), 999);
+}
+
+TEST(RandInt, UInt8Range) {
+    auto t = generate_tensor({100000}, torch::kUInt8,
+        TensorSpec{}, BaseDist::randint(0, 256), 44);
+    auto t64 = t.to(torch::kFloat64);
+    EXPECT_GE(t64.min().item<double>(), 0.0);
+    EXPECT_LE(t64.max().item<double>(), 255.0);
+}
+
+TEST(RandInt, WithDiscreteOverlay) {
+    auto t = generate_tensor({100000}, torch::kInt32,
+        {{SpecialValue::Zero, 0.3}},
+        BaseDist::randint(100, 200), 45);
+    auto zero_count = (t == 0).sum().item<int64_t>();
+    assert_probability(zero_count, 100000, 0.3);
+    auto non_zero = t.masked_select(t != 0);
+    auto nz64 = non_zero.to(torch::kFloat64);
+    EXPECT_GE(nz64.min().item<double>(), 100.0);
+    EXPECT_LE(nz64.max().item<double>(), 199.0);
+}
+
+// --- Generator tests ---
+static torch::Generator make_cpu_gen(uint64_t seed) {
+    auto gen = at::detail::createCPUGenerator();
+    gen.set_current_seed(seed);
+    return gen;
+}
+
+TEST(Generator, ImplicitConversion) {
+    auto gen = make_cpu_gen(99);
+    // Implicit conversion: Generator -> BaseDist (default Uniform(-1, 1))
+    auto t = generate_tensor({1000}, torch::kFloat32, TensorSpec{}, gen);
+    EXPECT_GE(t.min().item<float>(), -1.0f);
+    EXPECT_LE(t.max().item<float>(), 1.0f);
+}
+
+TEST(Generator, Reproducibility) {
+    auto t1 = generate_tensor({1000}, torch::kFloat32, TensorSpec{},
+        BaseDist::uniform(0.0, 1.0).with_generator(make_cpu_gen(123)));
+
+    auto t2 = generate_tensor({1000}, torch::kFloat32, TensorSpec{},
+        BaseDist::uniform(0.0, 1.0).with_generator(make_cpu_gen(123)));
+
+    EXPECT_TRUE(torch::equal(t1, t2));
+}
+
+TEST(Generator, Isolation) {
+    torch::manual_seed(42);
+    auto ref1 = torch::rand({10});
+
+    torch::manual_seed(42);
+    generate_tensor({1000}, torch::kFloat32, TensorSpec{}, make_cpu_gen(999));
+    auto ref2 = torch::rand({10});
+
+    EXPECT_TRUE(torch::equal(ref1, ref2));
+}
+
+TEST(Generator, WithRandInt) {
+    auto t1 = generate_tensor({1000}, torch::kInt32, TensorSpec{},
+        BaseDist::randint(0, 100).with_generator(make_cpu_gen(77)));
+
+    auto t2 = generate_tensor({1000}, torch::kInt32, TensorSpec{},
+        BaseDist::randint(0, 100).with_generator(make_cpu_gen(77)));
+
+    EXPECT_TRUE(torch::equal(t1, t2));
+}
+
 // --- UInt8 specific tests ---
-TEST(UInt8Specific, NegativeOneIs255) {
+TEST(UInt8Specific, NOneIs255) {
     auto t = generate_tensor({10000}, torch::kUInt8,
-        {{SpecialValue::NegativeOne, 1.0}});
+        {{SpecialValue::NOne, 1.0}});
     auto t64 = t.to(torch::kFloat64);
     EXPECT_EQ((t64 == 255.0).sum().item<int64_t>(), 10000);
 }
@@ -393,9 +467,9 @@ TEST(UInt8Specific, ContinuousClampedTo0_255) {
 }
 
 // --- UInt16 specific tests ---
-TEST(UInt16Specific, NegativeOneIs65535) {
+TEST(UInt16Specific, NOneIs65535) {
     auto t = generate_tensor({10000}, c10::ScalarType::UInt16,
-        {{SpecialValue::NegativeOne, 1.0}});
+        {{SpecialValue::NOne, 1.0}});
     auto t64 = t.to(torch::kFloat64);
     EXPECT_EQ((t64 == 65535.0).sum().item<int64_t>(), 10000);
 }
@@ -424,9 +498,9 @@ TEST(UInt16Specific, AllDiscreteNoleak) {
 }
 
 // --- UInt32 specific tests ---
-TEST(UInt32Specific, NegativeOneIs4294967295) {
+TEST(UInt32Specific, NOneIs4294967295) {
     auto t = generate_tensor({10000}, c10::ScalarType::UInt32,
-        {{SpecialValue::NegativeOne, 1.0}});
+        {{SpecialValue::NOne, 1.0}});
     auto t64 = t.to(torch::kFloat64);
     EXPECT_EQ((t64 == 4294967295.0).sum().item<int64_t>(), 10000);
 }
@@ -445,7 +519,7 @@ TEST(UInt32Specific, AllDiscreteNoleak) {
     auto t = generate_tensor({50000}, c10::ScalarType::UInt32,
         {{SpecialValue::Zero, 0.25},
          {SpecialValue::One, 0.25},
-         {SpecialValue::NegativeOne, 0.25},
+         {SpecialValue::NOne, 0.25},
          {SpecialValue::DTypeMax, 0.25}},
         {}, 666);
     auto t64 = t.to(torch::kFloat64);
@@ -474,7 +548,7 @@ TEST(UInt64Specific, ZeroAndOne) {
     assert_probability(zero_count, 50000, 0.5);
 }
 
-// --- Float special value correctness across dtypes ---
+// --- Float special value correctness ---
 TEST(FloatSpecials, Float16ValueCorrectness) {
     auto t = generate_tensor({1}, torch::kFloat16,
         {{SpecialValue::Epsilon, 1.0}});
@@ -517,7 +591,7 @@ TEST(FloatSpecials, Float64Tiny) {
     EXPECT_DOUBLE_EQ(val, DBL_MIN);
 }
 
-// --- Integer boundary value correctness ---
+// --- Integer boundary tests ---
 TEST(IntBoundary, Int8MinMax) {
     auto t = generate_tensor({1}, torch::kInt8, {{SpecialValue::DTypeMin, 1.0}});
     EXPECT_EQ(t.item<int8_t>(), -128);
@@ -562,12 +636,12 @@ TEST(BoolDType, DTypeMinFalse_DTypeMaxTrue) {
     EXPECT_TRUE(t.item<bool>());
 }
 
-// --- Large-scale performance sanity ---
+// --- Performance tests ---
 TEST(Performance, FourMillionFloat32) {
     auto t = generate_tensor({4000000}, torch::kFloat32,
         TensorSpec{{SpecialValue::Zero, 0.1},
                    {SpecialValue::NaN, 0.05},
-                   {SpecialValue::Infinity, 0.02},
+                   {SpecialValue::Inf, 0.02},
                    {SpecialValue::DTypeMin, 0.03}},
         BaseDist::uniform(-100.0, 100.0), 999);
 
@@ -582,7 +656,7 @@ TEST(Performance, FourMillionInt64) {
     auto t = generate_tensor({4000000}, torch::kInt64,
         TensorSpec{{SpecialValue::Zero, 0.2},
                    {SpecialValue::DTypeMax, 0.1},
-                   {SpecialValue::NegativeOne, 0.1}},
+                   {SpecialValue::NOne, 0.1}},
         BaseDist::uniform(-1000.0, 1000.0), 1000);
 
     EXPECT_EQ(t.numel(), 4000000);
@@ -590,7 +664,7 @@ TEST(Performance, FourMillionInt64) {
     assert_probability(zero_count, 4000000, 0.2);
 }
 
-// --- Continuous distribution property tests ---
+// --- Continuous distribution tests ---
 TEST(ContinuousDist, UniformRange) {
     auto t = generate_tensor({500000}, torch::kFloat32,
         TensorSpec{}, BaseDist::uniform(-7.5, 3.5), 1111);
@@ -609,13 +683,13 @@ TEST(ContinuousDist, NormalMeanStd) {
     EXPECT_NEAR(std_val, 3.0, 0.03);
 }
 
-// --- All-discrete leakage test (the critical floating-point edge case) ---
+// --- All-discrete leakage tests ---
 TEST(AllDiscrete, NoLeakageMultipleTrials) {
     for (int trial = 0; trial < 50; ++trial) {
         auto t = generate_tensor({100000}, torch::kFloat32,
             {{SpecialValue::Zero, 0.1},
              {SpecialValue::One, 0.2},
-             {SpecialValue::NegativeOne, 0.3},
+             {SpecialValue::NOne, 0.3},
              {SpecialValue::DTypeMax, 0.4}},
             {}, trial * 7);
 
@@ -633,7 +707,7 @@ TEST(AllDiscrete, NoLeakageWithFloatingProbs) {
         auto t = generate_tensor({50000}, torch::kInt32,
             {{SpecialValue::Zero, 0.1},
              {SpecialValue::One, 0.2},
-             {SpecialValue::NegativeOne, 0.3},
+             {SpecialValue::NOne, 0.3},
              {SpecialValue::DTypeMin, 0.4}},
             {}, 1000 + trial);
 
@@ -646,7 +720,7 @@ TEST(AllDiscrete, NoLeakageWithFloatingProbs) {
     }
 }
 
-// --- Seed reproducibility test ---
+// --- Seed tests ---
 TEST(Seed, SameSeedProducesSameResult) {
     auto t1 = generate_tensor({1000}, torch::kFloat32,
         TensorSpec{{SpecialValue::Zero, 0.3}},

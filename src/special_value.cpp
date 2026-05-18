@@ -4,21 +4,20 @@
 #include <cfloat>
 #include <limits>
 
-namespace tgen {
 using namespace detail;
 
 bool is_valid_for_dtype(SpecialValue sv, torch::ScalarType dtype) {
     switch (sv) {
     case SpecialValue::Zero:
     case SpecialValue::One:
-    case SpecialValue::NegativeOne:
+    case SpecialValue::NOne:
     case SpecialValue::DTypeMin:
     case SpecialValue::DTypeMax:
         return true;
     case SpecialValue::NaN:
         return is_float_dtype(dtype);
-    case SpecialValue::Infinity:
-    case SpecialValue::NegativeInfinity:
+    case SpecialValue::Inf:
+    case SpecialValue::NInf:
         return has_infinity(dtype);
     case SpecialValue::Epsilon:
     case SpecialValue::Tiny:
@@ -35,7 +34,7 @@ double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype) {
     case SpecialValue::One:
         return 1.0;
 
-    case SpecialValue::NegativeOne:
+    case SpecialValue::NOne:
         switch (dtype) {
         case torch::kUInt8:  return 255.0;
         case torch::kBool:   return 1.0;
@@ -89,10 +88,10 @@ double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype) {
     case SpecialValue::NaN:
         return std::numeric_limits<double>::quiet_NaN();
 
-    case SpecialValue::Infinity:
+    case SpecialValue::Inf:
         return std::numeric_limits<double>::infinity();
 
-    case SpecialValue::NegativeInfinity:
+    case SpecialValue::NInf:
         return -std::numeric_limits<double>::infinity();
 
     case SpecialValue::Epsilon:
@@ -119,5 +118,3 @@ double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype) {
     }
     return 0.0;
 }
-
-} // namespace tgen

@@ -1,19 +1,10 @@
 #pragma once
 
 // test_configs.h — shared test configuration for tensor_generator tests.
-//
-// Provides TestConfig (pairing a TensorSpec + BaseDist with a dtype
-// compatibility predicate), and the three factory functions used to drive
-// the cartesian product parameterised suite:
-//   get_all_configs()  — all TensorSpec scenarios under test
-//   get_all_shapes()   — shape list covering 1-D through 5-D and large sizes
-//   get_all_dtypes()   — every dtype supported by tensor_generator
 
 #include "../src/tensor_spec.h"
 #include <string>
 #include <vector>
-
-using namespace tgen;
 
 // ============================================================
 // dtype classification helpers
@@ -47,7 +38,6 @@ struct TestConfig {
     std::string name;
     TensorSpec spec;
     BaseDist base_dist;
-    // Predicate: is this config compatible with a given dtype?
     bool (*is_compatible)(torch::ScalarType);
 };
 
@@ -88,7 +78,7 @@ static std::vector<TestConfig> get_all_configs() {
          compat_all},
 
         {"neg1_min_max",
-         TensorSpec{{SpecialValue::NegativeOne, 0.4}, {SpecialValue::DTypeMin, 0.3}, {SpecialValue::DTypeMax, 0.3}},
+         TensorSpec{{SpecialValue::NOne, 0.4}, {SpecialValue::DTypeMin, 0.3}, {SpecialValue::DTypeMax, 0.3}},
          {},
          compat_all},
 
@@ -103,8 +93,8 @@ static std::vector<TestConfig> get_all_configs() {
          compat_non_bool},
 
         {"float_specials",
-         TensorSpec{{SpecialValue::NaN, 0.2}, {SpecialValue::Infinity, 0.15},
-                    {SpecialValue::NegativeInfinity, 0.15}, {SpecialValue::Epsilon, 0.1},
+         TensorSpec{{SpecialValue::NaN, 0.2}, {SpecialValue::Inf, 0.15},
+                    {SpecialValue::NInf, 0.15}, {SpecialValue::Epsilon, 0.1},
                     {SpecialValue::Tiny, 0.1}},
          BaseDist::uniform(-1.0, 1.0),
          compat_float_with_inf},
@@ -122,7 +112,7 @@ static std::vector<TestConfig> get_all_configs() {
 
         {"heavy_discrete",
          TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::One, 0.3},
-                    {SpecialValue::NegativeOne, 0.3}},
+                    {SpecialValue::NOne, 0.3}},
          BaseDist::uniform(-100.0, 100.0),
          compat_non_bool},
 
@@ -135,6 +125,11 @@ static std::vector<TestConfig> get_all_configs() {
          TensorSpec{},
          BaseDist::uniform(-5.0, 5.0),
          compat_non_bool},
+
+        {"pure_randint",
+         TensorSpec{},
+         BaseDist::randint(-100, 100),
+         compat_int_only},
 
         {"all_nan",
          TensorSpec{{SpecialValue::NaN, 1.0}},
@@ -158,14 +153,14 @@ static std::vector<TestConfig> get_all_configs() {
 // ============================================================
 static std::vector<std::vector<int64_t>> get_all_shapes() {
     return {
-        {1},                    // single element
-        {7},                    // small 1D
-        {100},                  // medium 1D
-        {3, 4},                 // 2D
-        {2, 3, 4},             // 3D
-        {2, 3, 4, 5},          // 4D
-        {2, 3, 4, 5, 6},       // 5D
-        {1000000},             // large 1D (for statistical verification)
+        {1},
+        {7},
+        {100},
+        {3, 4},
+        {2, 3, 4},
+        {2, 3, 4, 5},
+        {2, 3, 4, 5, 6},
+        {1000000},
     };
 }
 
@@ -174,20 +169,20 @@ static std::vector<std::vector<int64_t>> get_all_shapes() {
 // ============================================================
 static std::vector<torch::ScalarType> get_all_dtypes() {
     return {
-        torch::kUInt8,              // unsigned 8-bit
-        c10::ScalarType::UInt16,    // unsigned 16-bit
-        c10::ScalarType::UInt32,    // unsigned 32-bit
-        c10::ScalarType::UInt64,    // unsigned 64-bit
-        torch::kInt8,               // signed 8-bit
-        torch::kInt16,              // signed 16-bit
-        torch::kInt32,              // signed 32-bit
-        torch::kInt64,              // signed 64-bit
-        torch::kFloat16,            // IEEE 754 half
-        torch::kBFloat16,           // Brain float 16
-        torch::kFloat32,            // single precision
-        torch::kFloat64,            // double precision
-        torch::kBool,               // boolean
-        torch::kFloat8_e4m3fn,      // FP8 e4m3 (no inf)
-        torch::kFloat8_e5m2,        // FP8 e5m2
+        torch::kUInt8,
+        c10::ScalarType::UInt16,
+        c10::ScalarType::UInt32,
+        c10::ScalarType::UInt64,
+        torch::kInt8,
+        torch::kInt16,
+        torch::kInt32,
+        torch::kInt64,
+        torch::kFloat16,
+        torch::kBFloat16,
+        torch::kFloat32,
+        torch::kFloat64,
+        torch::kBool,
+        torch::kFloat8_e4m3fn,
+        torch::kFloat8_e5m2,
     };
 }

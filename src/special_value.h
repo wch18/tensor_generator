@@ -18,3 +18,14 @@ enum class SpecialValue {
 bool is_valid_for_dtype(SpecialValue sv, torch::ScalarType dtype);
 
 double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype);
+
+int64_t get_special_value_as_int64(SpecialValue sv, torch::ScalarType dtype);
+
+// Returns a torch::Scalar holding the value in the appropriate C++ type
+// (bool for kBool, int64_t for integer dtypes, double for float dtypes).
+torch::Scalar get_scalar(SpecialValue sv, torch::ScalarType dtype);
+
+template<torch::ScalarType DType>
+torch::Scalar get_scalar(SpecialValue sv) {
+    return get_scalar(sv, DType);
+}

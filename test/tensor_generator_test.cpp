@@ -739,6 +739,45 @@ TEST(Seed, DifferentSeedProducesDifferentResult) {
     EXPECT_FALSE(torch::equal(t1, t2));
 }
 
+// --- get_scalar tests ---
+TEST(GetScalar, FloatValues) {
+    auto s = get_scalar(SpecialValue::NaN, torch::kFloat32);
+    EXPECT_TRUE(std::isnan(s.toDouble()));
+
+    s = get_scalar(SpecialValue::Inf, torch::kFloat64);
+    EXPECT_EQ(s.toDouble(), std::numeric_limits<double>::infinity());
+
+    s = get_scalar(SpecialValue::Epsilon, torch::kFloat32);
+    EXPECT_FLOAT_EQ((float)s.toDouble(), FLT_EPSILON);
+}
+
+TEST(GetScalar, IntValues) {
+    auto s = get_scalar(SpecialValue::DTypeMax, torch::kInt64);
+    EXPECT_EQ(s.toLong(), std::numeric_limits<int64_t>::max());
+
+    s = get_scalar(SpecialValue::DTypeMin, torch::kInt32);
+    EXPECT_EQ(s.toLong(), std::numeric_limits<int32_t>::lowest());
+
+    s = get_scalar(SpecialValue::NOne, torch::kUInt8);
+    EXPECT_EQ(s.toLong(), 255);
+}
+
+TEST(GetScalar, BoolValues) {
+    auto s = get_scalar(SpecialValue::Zero, torch::kBool);
+    EXPECT_FALSE(s.toBool());
+
+    s = get_scalar(SpecialValue::One, torch::kBool);
+    EXPECT_TRUE(s.toBool());
+}
+
+TEST(GetScalar, TemplateVersion) {
+    auto s = get_scalar<torch::kFloat32>(SpecialValue::DTypeMax);
+    EXPECT_FLOAT_EQ((float)s.toDouble(), FLT_MAX);
+
+    s = get_scalar<torch::kInt64>(SpecialValue::DTypeMin);
+    EXPECT_EQ(s.toLong(), std::numeric_limits<int64_t>::lowest());
+}
+
 // ============================================================
 // main
 // ============================================================

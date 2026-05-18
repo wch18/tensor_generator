@@ -1,40 +1,8 @@
 #include "tensor_generator.h"
 #include "dtype_traits.h"
-#include <limits>
 #include <stdexcept>
 
 using namespace detail;
-
-static int64_t get_special_value_as_int64(SpecialValue sv, torch::ScalarType dtype) {
-    switch (sv) {
-    case SpecialValue::Zero: return 0;
-    case SpecialValue::One:  return 1;
-    case SpecialValue::NOne:
-        if (dtype == torch::kUInt8) return 255;
-        if (dtype == c10::ScalarType::UInt16) return 65535;
-        if (dtype == c10::ScalarType::UInt32) return 4294967295LL;
-        if (dtype == c10::ScalarType::UInt64) return -1LL;
-        return -1;
-    case SpecialValue::DTypeMin:
-        if (is_unsigned_int_dtype(dtype)) return 0;
-        if (dtype == torch::kInt8)  return -128;
-        if (dtype == torch::kInt16) return -32768;
-        if (dtype == torch::kInt32) return (int64_t)std::numeric_limits<int32_t>::lowest();
-        if (dtype == torch::kInt64) return std::numeric_limits<int64_t>::lowest();
-        return 0;
-    case SpecialValue::DTypeMax:
-        if (dtype == torch::kUInt8) return 255;
-        if (dtype == c10::ScalarType::UInt16) return 65535;
-        if (dtype == c10::ScalarType::UInt32) return 4294967295LL;
-        if (dtype == c10::ScalarType::UInt64) return -1LL;
-        if (dtype == torch::kInt8)  return 127;
-        if (dtype == torch::kInt16) return 32767;
-        if (dtype == torch::kInt32) return (int64_t)std::numeric_limits<int32_t>::max();
-        if (dtype == torch::kInt64) return std::numeric_limits<int64_t>::max();
-        return 0;
-    default: return 0;
-    }
-}
 
 static void safe_masked_fill(torch::Tensor& result, const torch::Tensor& mask,
                              SpecialValue sv, torch::ScalarType dtype) {

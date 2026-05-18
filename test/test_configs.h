@@ -17,10 +17,6 @@ static bool is_int_type(torch::ScalarType dt) {
     return c10::isIntegralType(dt, false);
 }
 
-static bool is_unsigned_type(torch::ScalarType dt) {
-    return c10::isIntegralType(dt, false) && !c10::isSignedType(dt);
-}
-
 // ============================================================
 // Config definitions for cartesian product
 // ============================================================

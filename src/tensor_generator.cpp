@@ -1,7 +1,5 @@
 #include "tensor_generator.h"
 #include "dtype_traits.h"
-#include <cmath>
-#include <cfloat>
 #include <limits>
 #include <stdexcept>
 

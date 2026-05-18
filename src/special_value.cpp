@@ -60,7 +60,6 @@ double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype) {
         case torch::kFloat8_e4m3fn: return -448.0;
         case torch::kFloat8_e5m2:   return -57344.0;
         default:
-            if (is_unsigned_int_dtype(dtype)) return 0.0;
             return 0.0;
         }
 

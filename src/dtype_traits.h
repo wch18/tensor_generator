@@ -5,32 +5,26 @@
 namespace detail {
 
 inline bool is_float_dtype(torch::ScalarType dtype) {
-    return dtype == torch::kFloat16 || dtype == torch::kBFloat16 ||
-           dtype == torch::kFloat32 || dtype == torch::kFloat64 ||
-           dtype == torch::kFloat8_e4m3fn || dtype == torch::kFloat8_e5m2;
-}
-
-inline bool is_unsigned_int_dtype(torch::ScalarType dtype) {
-    return dtype == torch::kUInt8 ||
-           dtype == c10::ScalarType::UInt16 ||
-           dtype == c10::ScalarType::UInt32 ||
-           dtype == c10::ScalarType::UInt64;
+    return c10::isFloatingType(dtype);
 }
 
 inline bool is_int_dtype(torch::ScalarType dtype) {
-    return dtype == torch::kUInt8 || dtype == torch::kInt8 ||
-           dtype == torch::kInt16 || dtype == torch::kInt32 || dtype == torch::kInt64 ||
-           dtype == c10::ScalarType::UInt16 ||
-           dtype == c10::ScalarType::UInt32 ||
-           dtype == c10::ScalarType::UInt64;
+    return c10::isIntegralType(dtype, false);
+}
+
+inline bool is_unsigned_int_dtype(torch::ScalarType dtype) {
+    return c10::isIntegralType(dtype, false) && !c10::isSignedType(dtype);
 }
 
 inline bool has_infinity(torch::ScalarType dtype) {
-    return is_float_dtype(dtype) && dtype != torch::kFloat8_e4m3fn;
+    return c10::isFloatingType(dtype) &&
+           dtype != torch::kFloat8_e4m3fn &&
+           dtype != c10::ScalarType::Float8_e4m3fnuz;
 }
 
+// dtypes where masked_fill_ / torch::where are not supported natively
 inline bool needs_cast_workaround(torch::ScalarType dtype) {
-    return dtype == torch::kFloat8_e4m3fn || dtype == torch::kFloat8_e5m2 ||
+    return c10::isFloat8Type(dtype) ||
            dtype == c10::ScalarType::UInt16 ||
            dtype == c10::ScalarType::UInt32 ||
            dtype == c10::ScalarType::UInt64;

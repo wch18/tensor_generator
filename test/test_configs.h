@@ -7,27 +7,18 @@
 #include <vector>
 
 // ============================================================
-// dtype classification helpers
+// dtype classification helpers (delegating to c10)
 // ============================================================
 static bool is_float_type(torch::ScalarType dt) {
-    return dt == torch::kFloat16 || dt == torch::kBFloat16 ||
-           dt == torch::kFloat32 || dt == torch::kFloat64 ||
-           dt == torch::kFloat8_e4m3fn || dt == torch::kFloat8_e5m2;
+    return c10::isFloatingType(dt);
 }
 
 static bool is_int_type(torch::ScalarType dt) {
-    return dt == torch::kUInt8 || dt == torch::kInt8 ||
-           dt == torch::kInt16 || dt == torch::kInt32 || dt == torch::kInt64 ||
-           dt == c10::ScalarType::UInt16 ||
-           dt == c10::ScalarType::UInt32 ||
-           dt == c10::ScalarType::UInt64;
+    return c10::isIntegralType(dt, false);
 }
 
 static bool is_unsigned_type(torch::ScalarType dt) {
-    return dt == torch::kUInt8 ||
-           dt == c10::ScalarType::UInt16 ||
-           dt == c10::ScalarType::UInt32 ||
-           dt == c10::ScalarType::UInt64;
+    return c10::isIntegralType(dt, false) && !c10::isSignedType(dt);
 }
 
 // ============================================================

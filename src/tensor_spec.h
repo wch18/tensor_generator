@@ -20,6 +20,8 @@
 #include <cassert>
 #include <cmath>
 #include <initializer_list>
+#include <limits>
+#include <stdexcept>
 #include <vector>
 
 enum class BaseDistType {
@@ -159,6 +161,9 @@ public:
 
     int64_t as_int64(torch::ScalarType dtype) const {
         if (special_) return get_special_value_as_int64(sv_, dtype);
+        if (raw_ < static_cast<double>(std::numeric_limits<int64_t>::min()) ||
+            raw_ >= static_cast<double>(std::numeric_limits<int64_t>::max()) + 1.0)
+            throw std::invalid_argument("raw value out of int64 range");
         return static_cast<int64_t>(raw_);
     }
 

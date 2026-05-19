@@ -8,6 +8,7 @@
 
 - **支持 16 种 dtype**：uint8/16/32/64、int8/16/32/64、float16/bfloat16/float32/float64、bool、float8_e4m3fn、float8_e5m2、float8_e8m0fnu
 - **离散特殊值**：Zero、One、NOne、DTypeMin、DTypeMax、NaN、Inf、NInf、Epsilon、Tiny
+- **任意数值字面量**：支持 `{42, 0.3}` 直接指定离散值，无需使用 SpecialValue 枚举
 - **基础分布**：Uniform、Normal、RandInt、Exponential、Poisson、LogNormal、Cauchy、Bernoulli
 - **概率混合**：以指定概率将离散值与连续/整数背景分布组合
 - **便捷接口**：常用模式的一行调用函数（`tensor_with_nan`、`tensor_with_inf_nan` 等）
@@ -56,6 +57,14 @@ auto t2 = generate_tensor({1000}, torch::kFloat32,
 // 20% NaN + 10% Inf，其余为正态分布 N(0, 1)
 auto t3 = generate_tensor({1000}, torch::kFloat64,
     TensorSpec{{SpecialValue::NaN, 0.2}, {SpecialValue::Inf, 0.1}},
+    BaseDist::normal(0.0, 1.0));
+
+// 使用数值字面量：50% 填 42，其余为默认均匀分布
+auto t4 = generate_tensor({1000}, torch::kInt32, TensorSpec{{42, 0.5}});
+
+// 混合：20% NaN + 30% 值为 99，其余为正态分布
+auto t5 = generate_tensor({1000}, torch::kFloat32,
+    TensorSpec{{SpecialValue::NaN, 0.2}, {99, 0.3}},
     BaseDist::normal(0.0, 1.0));
 ```
 
@@ -207,7 +216,7 @@ dist.with_generator(gen)            // 为任意分布绑定 generator
 ```
 src/
   tensor_generator.h/.cpp  — 公开 API（generate_tensor）
-  tensor_spec.h            — TensorSpec、BaseDist、DiscreteEntry
+  tensor_spec.h            — TensorSpec、BaseDist、DiscreteValue、DiscreteEntry
   special_value.h/.cpp     — SpecialValue 枚举与 dtype 感知的值表
   dtype_traits.h           — 内部 dtype 分类辅助函数
   convenience.h            — 便捷封装接口（仅头文件）

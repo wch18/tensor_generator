@@ -913,6 +913,29 @@ TEST(DiscreteEntryConversion, RawDoubleTruncatesOnIntDtype) {
 
     auto t2 = generate_tensor({100}, torch::kInt64, TensorSpec{{-7.9, 1.0}});
     EXPECT_TRUE((t2 == -7).all().item<bool>());
+
+    auto t3 = generate_tensor({100}, torch::kUInt8, TensorSpec{{3.14, 1.0}});
+    EXPECT_TRUE((t3.to(torch::kInt64) == 3).all().item<bool>());
+}
+
+TEST(DiscreteEntryConversion, RawValueOnUnsignedDtypes) {
+    auto t16 = generate_tensor({100}, c10::ScalarType::UInt16, TensorSpec{{1000, 1.0}});
+    EXPECT_TRUE((t16.to(torch::kInt64) == 1000).all().item<bool>());
+
+    auto t32 = generate_tensor({100}, c10::ScalarType::UInt32, TensorSpec{{70000, 1.0}});
+    EXPECT_TRUE((t32.to(torch::kInt64) == 70000).all().item<bool>());
+
+    auto t64 = generate_tensor({100}, c10::ScalarType::UInt64, TensorSpec{{12345, 1.0}});
+    EXPECT_TRUE((t64.to(torch::kInt64) == 12345).all().item<bool>());
+}
+
+TEST(DiscreteEntryConversion, RawValueOverflowInt64Throws) {
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kInt64, TensorSpec{{1e30, 1.0}}),
+        std::invalid_argument);
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kInt32, TensorSpec{{-1e30, 1.0}}),
+        std::invalid_argument);
 }
 
 TEST(DiscreteEntryConversion, RawValueOnBoolDtype) {

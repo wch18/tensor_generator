@@ -18,7 +18,7 @@ src/
 | 模块 | 职责 |
 |------|------|
 | `special_value` | 将 `SpecialValue` 枚举成员映射为每种 dtype 对应的精确数值表示；校验 dtype/值的兼容性 |
-| `tensor_spec` | 将离散 `(SpecialValue, probability)` 对列表与可选的连续基础分布聚合为单一 `TensorSpec` 结构体 |
+| `tensor_spec` | 将离散 `(DiscreteValue, probability)` 对列表与可选的连续基础分布聚合为单一 `TensorSpec` 结构体。`DiscreteValue` 可以是 `SpecialValue` 枚举（dtype 感知的特殊值）或任意数值字面量 |
 | `tensor_generator` | 实现生成算法；暴露 `generate_tensor()` |
 | `convenience` | 为常用模式提供一行调用的便捷封装函数 |
 | `strategies` | 生成 `TestCase` 向量，用于系统化测试覆盖 |
@@ -45,6 +45,34 @@ torch::Tensor generate_tensor(
 ```
 
 `TensorSpec` 仅包含离散条目。`BaseDist` 是控制连续基础分布的独立参数。`seed` 提供可复现性，无需调用方管理全局 RNG 状态。
+
+### DiscreteValue
+
+`DiscreteEntry` 的值字段类型为 `DiscreteValue`——一个可持有 `SpecialValue` 枚举或任意数值字面量的标签联合体。
+
+**构造方式：**
+
+```cpp
+DiscreteEntry(SpecialValue::NaN, 0.2)   // 显式 SpecialValue
+DiscreteEntry(0, 0.3)                   // int → SpecialValue::Zero（隐式提升）
+DiscreteEntry(42, 0.5)                  // int → raw 值 42
+DiscreteEntry(3.14, 0.1)               // double → raw 值 3.14
+```
+
+**隐式提升规则：** 以下数值自动提升为 `SpecialValue`，获得 dtype 感知行为（如 `-1` 在 uint8 上变为 `255`）：
+
+| 数值 | 提升为 |
+|------|--------|
+| `0` / `0.0` | `Zero` |
+| `1` / `1.0` | `One` |
+| `-1` / `-1.0` | `NOne` |
+| `NaN` | `NaN` |
+| `+Inf` | `Inf` |
+| `-Inf` | `NInf` |
+
+其余数值存为 raw 值，生成时直接 cast 到目标 dtype（浮点 → 整数时截断小数部分）。
+
+**dtype 校验：** `SpecialValue` 条目受 `is_valid_for_dtype()` 约束（如整数类型不接受 NaN）。Raw 值始终通过校验，由 dtype cast 处理类型转换。整数 dtype 使用 raw 值时，超出 int64 范围的值会在生成时抛出异常。
 
 ### BaseDist 类型
 

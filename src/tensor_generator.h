@@ -10,7 +10,8 @@
 //   dtype     — target scalar type.
 //   spec      — discrete distribution (SpecialValue + probability pairs).
 //   base_dist — continuous/integer base distribution. Default: Uniform(-1, 1).
-//               Supports RandInt for integer dtypes.
+//               Supports: Uniform, Normal, RandInt, Exponential, Poisson,
+//                         LogNormal, Cauchy, Bernoulli.
 //               Can carry a torch::Generator for isolated RNG state.
 //   seed      — optional global RNG seed (calls torch::manual_seed).
 //
@@ -18,7 +19,7 @@
 //   - any entry has a negative probability,
 //   - any SpecialValue is incompatible with dtype,
 //   - discrete probabilities sum to more than 1.0 + 1e-9,
-//   - RandInt base_dist used with a float or bool dtype.
+//   - RandInt/Poisson base_dist used with a float or bool dtype.
 torch::Tensor generate_tensor(
     torch::IntArrayRef shape,
     torch::ScalarType dtype,

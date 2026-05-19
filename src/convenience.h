@@ -42,6 +42,56 @@ inline torch::Tensor make_randint_tensor(
     return generate_tensor(shape, dtype, TensorSpec{}, dist);
 }
 
+inline torch::Tensor make_exponential_tensor(
+    torch::IntArrayRef shape,
+    torch::ScalarType dtype = torch::kFloat32,
+    double lambda = 1.0,
+    c10::optional<torch::Generator> generator = c10::nullopt) {
+    BaseDist dist = BaseDist::exponential(lambda);
+    if (generator.has_value()) dist = dist.with_generator(*generator);
+    return generate_tensor(shape, dtype, TensorSpec{}, dist);
+}
+
+inline torch::Tensor make_poisson_tensor(
+    torch::IntArrayRef shape,
+    torch::ScalarType dtype = torch::kInt32,
+    double rate = 1.0,
+    c10::optional<torch::Generator> generator = c10::nullopt) {
+    BaseDist dist = BaseDist::poisson(rate);
+    if (generator.has_value()) dist = dist.with_generator(*generator);
+    return generate_tensor(shape, dtype, TensorSpec{}, dist);
+}
+
+inline torch::Tensor make_lognormal_tensor(
+    torch::IntArrayRef shape,
+    torch::ScalarType dtype = torch::kFloat32,
+    double mean = 0.0, double std = 1.0,
+    c10::optional<torch::Generator> generator = c10::nullopt) {
+    BaseDist dist = BaseDist::lognormal(mean, std);
+    if (generator.has_value()) dist = dist.with_generator(*generator);
+    return generate_tensor(shape, dtype, TensorSpec{}, dist);
+}
+
+inline torch::Tensor make_cauchy_tensor(
+    torch::IntArrayRef shape,
+    torch::ScalarType dtype = torch::kFloat32,
+    double median = 0.0, double sigma = 1.0,
+    c10::optional<torch::Generator> generator = c10::nullopt) {
+    BaseDist dist = BaseDist::cauchy(median, sigma);
+    if (generator.has_value()) dist = dist.with_generator(*generator);
+    return generate_tensor(shape, dtype, TensorSpec{}, dist);
+}
+
+inline torch::Tensor make_bernoulli_tensor(
+    torch::IntArrayRef shape,
+    torch::ScalarType dtype = torch::kFloat32,
+    double p = 0.5,
+    c10::optional<torch::Generator> generator = c10::nullopt) {
+    BaseDist dist = BaseDist::bernoulli(p);
+    if (generator.has_value()) dist = dist.with_generator(*generator);
+    return generate_tensor(shape, dtype, TensorSpec{}, dist);
+}
+
 // --- 1b: Single special value -----------------------------------------------
 
 inline torch::Tensor tensor_with_one_sv(

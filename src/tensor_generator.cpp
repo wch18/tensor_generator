@@ -1,5 +1,6 @@
 #include "tensor_generator.h"
 #include "dtype_traits.h"
+#include <cmath>
 #include <stdexcept>
 
 using namespace detail;
@@ -63,6 +64,14 @@ torch::Tensor generate_tensor(
                 throw std::invalid_argument(
                     "RandInt base distribution is incompatible with bool dtype");
         }
+        if (base_dist.type == BaseDistType::Poisson) {
+            if (is_float_dtype(dtype))
+                throw std::invalid_argument(
+                    "Poisson base distribution is incompatible with float dtype");
+            if (dtype == torch::kBool)
+                throw std::invalid_argument(
+                    "Poisson base distribution is incompatible with bool dtype");
+        }
     }
 
     auto f64_opts = torch::TensorOptions().dtype(torch::kFloat64);
@@ -102,6 +111,49 @@ torch::Tensor generate_tensor(
                 base = torch::randint(lo, hi, shape, gen, i64_opts);
             else
                 base = torch::randint(lo, hi, shape, i64_opts);
+            break;
+        }
+        case BaseDistType::Exponential: {
+            if (gen.defined())
+                base = torch::rand(shape, gen, f64_opts);
+            else
+                base = torch::rand(shape, f64_opts);
+            // Inverse CDF: -ln(1 - U) / lambda
+            base = -torch::log1p(-base) / base_dist.param1;
+            break;
+        }
+        case BaseDistType::Poisson: {
+            // Generate from normal approximation via torch, then use poisson
+            auto lambda_tensor = torch::full(shape, base_dist.param1, f64_opts);
+            base = torch::poisson(lambda_tensor);
+            base = base.to(torch::kInt64);
+            break;
+        }
+        case BaseDistType::LogNormal: {
+            if (gen.defined())
+                base = torch::randn(shape, gen, f64_opts);
+            else
+                base = torch::randn(shape, f64_opts);
+            // exp(mean + std * Z)
+            base = torch::exp(base * base_dist.param2 + base_dist.param1);
+            break;
+        }
+        case BaseDistType::Cauchy: {
+            if (gen.defined())
+                base = torch::rand(shape, gen, f64_opts);
+            else
+                base = torch::rand(shape, f64_opts);
+            // Inverse CDF: median + sigma * tan(pi * (U - 0.5))
+            base = base_dist.param1 +
+                   base_dist.param2 * torch::tan(M_PI * (base - 0.5));
+            break;
+        }
+        case BaseDistType::Bernoulli: {
+            if (gen.defined())
+                base = torch::rand(shape, gen, f64_opts);
+            else
+                base = torch::rand(shape, f64_opts);
+            base = (base < base_dist.param1).to(torch::kFloat64);
             break;
         }
         }

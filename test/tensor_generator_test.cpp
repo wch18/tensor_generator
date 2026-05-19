@@ -28,6 +28,7 @@ static std::string dtype_name(torch::ScalarType dt) {
     if (dt == c10::ScalarType::UInt16) return "uint16";
     if (dt == c10::ScalarType::UInt32) return "uint32";
     if (dt == c10::ScalarType::UInt64) return "uint64";
+    if (dt == c10::ScalarType::Float8_e8m0fnu) return "fp8_e8m0fnu";
     switch (dt) {
     case torch::kUInt8:          return "uint8";
     case torch::kInt8:           return "int8";
@@ -107,7 +108,8 @@ TEST_P(CartesianTest, GenerateAndVerify) {
     bool has_continuous = (p_sum < 1.0 - 1e-9);
 
     bool low_resolution_dtype = is_int_type(param.dtype) || param.dtype == torch::kBool ||
-        param.dtype == torch::kFloat8_e4m3fn || param.dtype == torch::kFloat8_e5m2;
+        param.dtype == torch::kFloat8_e4m3fn || param.dtype == torch::kFloat8_e5m2 ||
+        param.dtype == c10::ScalarType::Float8_e8m0fnu;
     bool relaxed_verification = low_resolution_dtype && has_continuous;
 
     struct ValueGroup {
@@ -235,7 +237,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST(Validation, FloatOnlyValues) {
     std::vector<torch::ScalarType> float_types = {
         torch::kFloat16, torch::kBFloat16, torch::kFloat32, torch::kFloat64,
-        torch::kFloat8_e4m3fn, torch::kFloat8_e5m2};
+        torch::kFloat8_e4m3fn, torch::kFloat8_e5m2, c10::ScalarType::Float8_e8m0fnu};
     std::vector<torch::ScalarType> int_types = {
         torch::kUInt8, c10::ScalarType::UInt16, c10::ScalarType::UInt32,
         c10::ScalarType::UInt64, torch::kInt8, torch::kInt16, torch::kInt32,
@@ -258,6 +260,20 @@ TEST(Validation, InfinityE4M3) {
     EXPECT_FALSE(is_valid_for_dtype(SpecialValue::NInf, torch::kFloat8_e4m3fn));
     EXPECT_TRUE(is_valid_for_dtype(SpecialValue::Inf, torch::kFloat8_e5m2));
     EXPECT_TRUE(is_valid_for_dtype(SpecialValue::NaN, torch::kFloat8_e4m3fn));
+}
+
+TEST(Validation, E8M0Constraints) {
+    auto dt = c10::ScalarType::Float8_e8m0fnu;
+    EXPECT_FALSE(is_valid_for_dtype(SpecialValue::Zero, dt));
+    EXPECT_FALSE(is_valid_for_dtype(SpecialValue::NOne, dt));
+    EXPECT_FALSE(is_valid_for_dtype(SpecialValue::Inf, dt));
+    EXPECT_FALSE(is_valid_for_dtype(SpecialValue::NInf, dt));
+    EXPECT_TRUE(is_valid_for_dtype(SpecialValue::One, dt));
+    EXPECT_TRUE(is_valid_for_dtype(SpecialValue::DTypeMin, dt));
+    EXPECT_TRUE(is_valid_for_dtype(SpecialValue::DTypeMax, dt));
+    EXPECT_TRUE(is_valid_for_dtype(SpecialValue::NaN, dt));
+    EXPECT_TRUE(is_valid_for_dtype(SpecialValue::Epsilon, dt));
+    EXPECT_TRUE(is_valid_for_dtype(SpecialValue::Tiny, dt));
 }
 
 // --- Error handling tests ---

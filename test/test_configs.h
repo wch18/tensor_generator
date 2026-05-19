@@ -46,12 +46,8 @@ static bool compat_float_with_inf(torch::ScalarType dt) {
 
 static bool compat_non_bool(torch::ScalarType dt) { return dt != torch::kBool; }
 
-// Has zero and negative-one support (excludes E8M0 which is unsigned, no zero)
-static bool compat_has_zero(torch::ScalarType dt) {
-    return dt != c10::ScalarType::Float8_e8m0fnu;
-}
-
-static bool compat_has_zero_and_none(torch::ScalarType dt) {
+// Excludes E8M0 which cannot represent zero or negative values
+static bool compat_has_zero_and_neg(torch::ScalarType dt) {
     return dt != c10::ScalarType::Float8_e8m0fnu;
 }
 
@@ -67,7 +63,7 @@ static std::vector<TestConfig> get_all_configs() {
         {"all_zeros",
          TensorSpec{{SpecialValue::Zero, 1.0}},
          {},
-         compat_has_zero},
+         compat_has_zero_and_neg},
 
         {"all_ones",
          TensorSpec{{SpecialValue::One, 1.0}},
@@ -77,17 +73,17 @@ static std::vector<TestConfig> get_all_configs() {
         {"half_zero_half_one",
          TensorSpec{{SpecialValue::Zero, 0.5}, {SpecialValue::One, 0.5}},
          {},
-         compat_has_zero},
+         compat_has_zero_and_neg},
 
         {"min_max_zero",
          TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::DTypeMin, 0.3}, {SpecialValue::DTypeMax, 0.4}},
          {},
-         compat_has_zero},
+         compat_has_zero_and_neg},
 
         {"neg1_min_max",
          TensorSpec{{SpecialValue::NOne, 0.4}, {SpecialValue::DTypeMin, 0.3}, {SpecialValue::DTypeMax, 0.3}},
          {},
-         compat_has_zero_and_none},
+         compat_has_zero_and_neg},
 
         {"discrete_plus_uniform",
          TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::DTypeMax, 0.1}},

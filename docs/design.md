@@ -99,18 +99,18 @@ for each entry (value, p) in spec.discrete:
 
 下表展示每种 dtype 下各 `SpecialValue` 枚举成员写入张量的具体值。"二补数回绕"指有符号域中 `-1` 的位模式，被重新解释为无符号类型。
 
-| SpecialValue | uint8 | uint16 | uint32 | uint64 | int8 | int16 | int32 | int64 | float16 | bfloat16 | float32 | float64 | bool | fp8_e4m3fn | fp8_e5m2 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Zero | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0 | 0.0 | 0.0 | 0.0 | false | 0.0 | 0.0 |
-| One | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1.0 | 1.0 | 1.0 | 1.0 | true | 1.0 | 1.0 |
-| NegativeOne | 255 | 65535 | 4294967295 | 2^64-1 | -1 | -1 | -1 | -1 | -1.0 | -1.0 | -1.0 | -1.0 | true | -1.0 | -1.0 |
-| DTypeMin | 0 | 0 | 0 | 0 | -128 | -32768 | INT32_MIN | INT64_MIN | -65504.0 | -3.39e+38 | -FLT_MAX | -DBL_MAX | false | -448.0 | -57344.0 |
-| DTypeMax | 255 | 65535 | 4294967295 | 2^64-1 | 127 | 32767 | INT32_MAX | INT64_MAX | 65504.0 | 3.39e+38 | FLT_MAX | DBL_MAX | true | 448.0 | 57344.0 |
-| NaN | — | — | — | — | — | — | — | — | NaN | NaN | NaN | NaN | — | NaN | NaN |
-| Infinity | — | — | — | — | — | — | — | — | +inf | +inf | +inf | +inf | — | — | +inf |
-| NegativeInfinity | — | — | — | — | — | — | — | — | -inf | -inf | -inf | -inf | — | — | -inf |
-| Epsilon | — | — | — | — | — | — | — | — | 9.77e-4 | 7.81e-3 | FLT_EPSILON | DBL_EPSILON | — | 0.125 | 0.25 |
-| Tiny | — | — | — | — | — | — | — | — | 6.10e-5 | FLT_MIN | FLT_MIN | DBL_MIN | — | 0.015625 | 6.10e-5 |
+| SpecialValue | uint8 | uint16 | uint32 | uint64 | int8 | int16 | int32 | int64 | float16 | bfloat16 | float32 | float64 | bool | fp8_e4m3fn | fp8_e5m2 | fp8_e8m0fnu |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Zero | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0 | 0.0 | 0.0 | 0.0 | false | 0.0 | 0.0 | — |
+| One | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1.0 | 1.0 | 1.0 | 1.0 | true | 1.0 | 1.0 | 1.0 |
+| NegativeOne | 255 | 65535 | 4294967295 | 2^64-1 | -1 | -1 | -1 | -1 | -1.0 | -1.0 | -1.0 | -1.0 | true | -1.0 | -1.0 | — |
+| DTypeMin | 0 | 0 | 0 | 0 | -128 | -32768 | INT32_MIN | INT64_MIN | -65504.0 | -3.39e+38 | -FLT_MAX | -DBL_MAX | false | -448.0 | -57344.0 | 2^-127 |
+| DTypeMax | 255 | 65535 | 4294967295 | 2^64-1 | 127 | 32767 | INT32_MAX | INT64_MAX | 65504.0 | 3.39e+38 | FLT_MAX | DBL_MAX | true | 448.0 | 57344.0 | 2^127 |
+| NaN | — | — | — | — | — | — | — | — | NaN | NaN | NaN | NaN | — | NaN | NaN | NaN |
+| Infinity | — | — | — | — | — | — | — | — | +inf | +inf | +inf | +inf | — | — | +inf | — |
+| NegativeInfinity | — | — | — | — | — | — | — | — | -inf | -inf | -inf | -inf | — | — | -inf | — |
+| Epsilon | — | — | — | — | — | — | — | — | 9.77e-4 | 7.81e-3 | FLT_EPSILON | DBL_EPSILON | — | 0.125 | 0.25 | 1.0 |
+| Tiny | — | — | — | — | — | — | — | — | 6.10e-5 | FLT_MIN | FLT_MIN | DBL_MIN | — | 0.015625 | 6.10e-5 | 2^-127 |
 
 "—"表示该值对该 dtype 无效（`is_valid_for_dtype()` 返回 `false`）。
 
@@ -137,6 +137,19 @@ PyTorch 的 `masked_fill_` 在目标 dtype 为 FP8 时不接受标量。解决�
 ### 布尔类型
 
 `bool` 被视为 1 位无符号整数。`DTypeMin` = `false` (0)，`DTypeMax` = `true` (1)。`NegativeOne` 映射为 `true`（通过二补数规则与 `One` 相同）。所有浮点专用值（NaN、Inf、Epsilon、Tiny）均无效。
+
+### float8_e8m0fnu (E8M0)
+
+OCP MX 微缩放格式的指数-only 编码：8 位指数、0 位尾数、无符号位。值域为 2^(-127) 到 2^127（仅 2 的幂次），加 NaN (0xFF)。
+
+关键约束：
+- **无零**：`Zero` 对 E8M0 无效（指数 0 编码为 2^-127 而非 0）
+- **无负数**：`NOne`、`NInf` 无效
+- **无无穷大**：`Inf` 无效
+- **Epsilon = 1.0**：从 1.0 (2^0) 到下一个可表示值 2.0 (2^1) 的差为 1.0
+- **Tiny = DTypeMin = 2^(-127)**：最小可表示正值
+
+由于所有可表示值均为 2 的幂次，连续分布 cast 到 E8M0 时量化效应极端——离散/连续混合配置的统计检查在该 dtype 下不可靠。
 
 ---
 
@@ -305,3 +318,4 @@ struct TestCase {
 | bool | `torch::kBool` | 1 | 否 | 否 |
 | float8_e4m3fn | `torch::kFloat8_e4m3fn` | 8 | 是 | 是（无 inf） |
 | float8_e5m2 | `torch::kFloat8_e5m2` | 8 | 是 | 是 |
+| float8_e8m0fnu | `c10::ScalarType::Float8_e8m0fnu` | 8 | 否 | 是（无零/无穷/无负数，仅 2 的幂次） |

@@ -6,7 +6,7 @@
 
 ## 特性
 
-- **支持 15 种 dtype**：uint8/16/32/64、int8/16/32/64、float16/bfloat16/float32/float64、bool、float8_e4m3fn、float8_e5m2
+- **支持 16 种 dtype**：uint8/16/32/64、int8/16/32/64、float16/bfloat16/float32/float64、bool、float8_e4m3fn、float8_e5m2、float8_e8m0fnu
 - **离散特殊值**：Zero、One、NOne、DTypeMin、DTypeMax、NaN、Inf、NInf、Epsilon、Tiny
 - **基础分布**：Uniform、Normal、RandInt、Exponential、Poisson、LogNormal、Cauchy、Bernoulli
 - **概率混合**：以指定概率将离散值与连续/整数背景分布组合
@@ -191,14 +191,14 @@ dist.with_generator(gen)            // 为任意分布绑定 generator
 
 | 名称 | 描述 |
 |------|------|
-| `Zero` | 加法单位元 |
+| `Zero` | 加法单位元（E8M0 不可用） |
 | `One` | 乘法单位元 |
-| `NOne` | -1（无符号类型为 0xFF...FF） |
+| `NOne` | -1（无符号类型为 0xFF...FF；E8M0 不可用） |
 | `DTypeMin` | 类型可表示的最小值 |
 | `DTypeMax` | 类型可表示的最大值 |
 | `NaN` | 静默 NaN（仅浮点类型） |
-| `Inf` | +无穷大（浮点类型，不含 e4m3fn） |
-| `NInf` | -无穷大（浮点类型，不含 e4m3fn） |
+| `Inf` | +无穷大（浮点类型，不含 e4m3fn/e8m0fnu） |
+| `NInf` | -无穷大（浮点类型，不含 e4m3fn/e8m0fnu） |
 | `Epsilon` | 机器精度（仅浮点类型） |
 | `Tiny` | 最小正规化数（仅浮点类型） |
 

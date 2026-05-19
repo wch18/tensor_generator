@@ -92,10 +92,10 @@ static std::string format_label(const std::vector<std::pair<SpecialValue, double
 std::vector<TestCase> random_strategy(
     int count,
     torch::ScalarType dtype,
+    const std::vector<SpecialValue>& exclude,
     double p_max,
     bool strict,
-    c10::optional<torch::Generator> generator,
-    const std::vector<SpecialValue>& exclude)
+    c10::optional<torch::Generator> generator)
 {
     auto gen = ensure_gen(generator);
     auto valid = valid_svs_for_dtype(dtype);

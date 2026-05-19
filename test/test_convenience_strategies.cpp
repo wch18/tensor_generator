@@ -197,7 +197,7 @@ TEST(RandomStrategy, ProducesRequestedCount) {
 }
 
 TEST(RandomStrategy, StrictMode) {
-    auto cases = random_strategy(20, torch::kFloat32, 0.5, true);
+    auto cases = random_strategy(20, torch::kFloat32, {}, 0.5, true);
     for (auto& tc : cases) {
         double sum = 0;
         for (auto& e : tc.spec.discrete) sum += e.probability;
@@ -206,7 +206,7 @@ TEST(RandomStrategy, StrictMode) {
 }
 
 TEST(RandomStrategy, NonStrictBound) {
-    auto cases = random_strategy(50, torch::kFloat64, 0.3, false);
+    auto cases = random_strategy(50, torch::kFloat64, {}, 0.3, false);
     for (auto& tc : cases) {
         double sum = 0;
         for (auto& e : tc.spec.discrete) sum += e.probability;
@@ -225,7 +225,7 @@ TEST(RandomStrategy, IntegerDtype) {
 }
 
 TEST(RandomStrategy, EmptyForBoolIfNoValid) {
-    auto cases = random_strategy(10, torch::kBool, 1.0, false);
+    auto cases = random_strategy(10, torch::kBool, {}, 1.0, false);
     for (auto& tc : cases) {
         for (auto& e : tc.spec.discrete) {
             EXPECT_TRUE(e.value.is_valid_for_dtype( torch::kBool));
@@ -236,11 +236,11 @@ TEST(RandomStrategy, EmptyForBoolIfNoValid) {
 TEST(RandomStrategy, Reproducible) {
     auto gen1 = at::detail::createCPUGenerator();
     gen1.set_current_seed(123);
-    auto cases1 = random_strategy(5, torch::kFloat32, 0.5, false, gen1);
+    auto cases1 = random_strategy(5, torch::kFloat32, {}, 0.5, false, gen1);
 
     auto gen2 = at::detail::createCPUGenerator();
     gen2.set_current_seed(123);
-    auto cases2 = random_strategy(5, torch::kFloat32, 0.5, false, gen2);
+    auto cases2 = random_strategy(5, torch::kFloat32, {}, 0.5, false, gen2);
 
     for (int i = 0; i < 5; ++i) {
         ASSERT_EQ(cases1[i].spec.discrete.size(), cases2[i].spec.discrete.size());
@@ -253,7 +253,7 @@ TEST(RandomStrategy, Reproducible) {
 }
 
 TEST(RandomStrategy, PMaxOne) {
-    auto cases = random_strategy(10, torch::kFloat32, 1.0, true);
+    auto cases = random_strategy(10, torch::kFloat32, {}, 1.0, true);
     for (auto& tc : cases) {
         double sum = 0;
         for (auto& e : tc.spec.discrete) sum += e.probability;
@@ -262,15 +262,16 @@ TEST(RandomStrategy, PMaxOne) {
 }
 
 TEST(RandomStrategy, GeneratesValidTensors) {
-    auto cases = random_strategy(10, torch::kFloat32, 0.5);
+    auto cases = random_strategy(10, torch::kFloat32, {}, 0.5);
     for (auto& tc : cases) {
         EXPECT_NO_THROW(generate_tensor({100}, torch::kFloat32, tc.spec, tc.dist));
     }
 }
 
 TEST(RandomStrategy, ExcludeRemovesValues) {
-    auto cases = random_strategy(50, torch::kFloat32, 1.0, true,
-        c10::nullopt, {SpecialValue::NaN, SpecialValue::Inf, SpecialValue::NInf});
+    auto cases = random_strategy(50, torch::kFloat32,
+        {SpecialValue::NaN, SpecialValue::Inf, SpecialValue::NInf},
+        1.0, true);
     for (auto& tc : cases) {
         for (auto& e : tc.spec.discrete) {
             EXPECT_NE(e.value, SpecialValue::NaN);
@@ -281,8 +282,7 @@ TEST(RandomStrategy, ExcludeRemovesValues) {
 }
 
 TEST(RandomStrategy, ExcludeAllReturnsEmpty) {
-    auto cases = random_strategy(10, torch::kBool, 1.0, false,
-        c10::nullopt,
+    auto cases = random_strategy(10, torch::kBool,
         {SpecialValue::Zero, SpecialValue::One, SpecialValue::NOne,
          SpecialValue::DTypeMin, SpecialValue::DTypeMax,
          SpecialValue::NaN, SpecialValue::Inf, SpecialValue::NInf,
@@ -291,8 +291,8 @@ TEST(RandomStrategy, ExcludeAllReturnsEmpty) {
 }
 
 TEST(RandomStrategy, ExcludeSubsetGeneratesValidTensors) {
-    auto cases = random_strategy(20, torch::kFloat32, 0.5, false,
-        c10::nullopt, {SpecialValue::NaN, SpecialValue::Inf});
+    auto cases = random_strategy(20, torch::kFloat32,
+        {SpecialValue::NaN, SpecialValue::Inf}, 0.5);
     for (auto& tc : cases) {
         EXPECT_NO_THROW(generate_tensor({100}, torch::kFloat32, tc.spec, tc.dist));
     }
@@ -304,8 +304,8 @@ TEST(RandomStrategy, ExcludeWithReproducibility) {
     auto gen2 = at::detail::createCPUGenerator();
     gen2.set_current_seed(42);
     auto exclude = std::vector<SpecialValue>{SpecialValue::NaN};
-    auto cases1 = random_strategy(5, torch::kFloat32, 0.5, false, gen1, exclude);
-    auto cases2 = random_strategy(5, torch::kFloat32, 0.5, false, gen2, exclude);
+    auto cases1 = random_strategy(5, torch::kFloat32, exclude, 0.5, false, gen1);
+    auto cases2 = random_strategy(5, torch::kFloat32, exclude, 0.5, false, gen2);
     ASSERT_EQ(cases1.size(), cases2.size());
     for (size_t i = 0; i < cases1.size(); ++i) {
         EXPECT_EQ(cases1[i].label, cases2[i].label);
@@ -574,7 +574,7 @@ TEST(GridPairwise, BoolDtype) {
 // ============================================================================
 
 TEST(StrategyIntegration, RandomStrategyPipeline) {
-    auto cases = random_strategy(10, torch::kFloat32, 0.5);
+    auto cases = random_strategy(10, torch::kFloat32, {}, 0.5);
     for (auto& tc : cases) {
         auto t = generate_tensor({1000}, torch::kFloat32, tc.spec, tc.dist);
         EXPECT_EQ(t.sizes(), std::vector<int64_t>{1000});

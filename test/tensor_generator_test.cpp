@@ -344,6 +344,20 @@ TEST(Fallback, NInfOnE4M3FallsToDTypeMin) {
     EXPECT_FLOAT_EQ(val, -448.0f);
 }
 
+TEST(Fallback, InfOnE8M0FallsToDTypeMax) {
+    auto t = generate_tensor({100}, c10::ScalarType::Float8_e8m0fnu,
+        {{SpecialValue::Inf, 1.0}});
+    double val = t.to(torch::kFloat64).max().item<double>();
+    EXPECT_DOUBLE_EQ(val, 1.7014118346046923e+38);  // 2^127
+}
+
+TEST(Fallback, NInfOnE8M0FallsToDTypeMin) {
+    auto t = generate_tensor({100}, c10::ScalarType::Float8_e8m0fnu,
+        {{SpecialValue::NInf, 1.0}});
+    double val = t.to(torch::kFloat64).min().item<double>();
+    EXPECT_DOUBLE_EQ(val, 5.877471754111438e-39);   // 2^-127
+}
+
 TEST(Fallback, NaNOnIntegerSilentlySkipped) {
     auto t = generate_tensor({1000}, torch::kInt32,
         {{SpecialValue::NaN, 0.5}},

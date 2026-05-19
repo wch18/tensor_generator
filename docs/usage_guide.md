@@ -348,6 +348,7 @@ struct TestCase {
 auto cases = random_strategy(
     50,                  // 生成 50 组配置
     torch::kFloat32,     // 针对 float32（自动过滤无效的特殊值）
+    {},                  // 不排除任何特殊值
     /*p_max=*/0.5);      // 离散值总概率上限 50%
 
 for (auto& tc : cases) {
@@ -361,8 +362,9 @@ for (auto& tc : cases) {
 
 ```cpp
 // 随机组合，但排除 NaN 和 Inf
-auto cases = random_strategy(50, torch::kFloat32, 0.5, false,
-    c10::nullopt, {SpecialValue::NaN, SpecialValue::Inf});
+auto cases = random_strategy(50, torch::kFloat32,
+    {SpecialValue::NaN, SpecialValue::Inf},  // exclude
+    /*p_max=*/0.5);
 // 生成的配置中不会包含 NaN 或 Inf
 ```
 

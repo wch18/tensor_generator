@@ -101,11 +101,22 @@ DiscreteEntry(3.14, 0.1)               // double → raw 值 3.14
 
 ## "基础层 + 掩码覆盖"算法
 
-`generate_tensor(shape, dtype, spec, base_dist, seed)` 分三个阶段工作：
+`generate_tensor(shape, dtype, spec, base_dist, seed)` 分四个阶段工作：
+
+### 阶段 0 — 降级解析
+
+对 `spec.discrete` 中的每个条目进行 dtype 兼容性检查，构建解析后的离散列表 `resolved`：
+
+- 若条目对当前 dtype 有效，原样保留。
+- 若为 `Inf`/`NInf` 且不兼容（非浮点或无穷大不可表示的浮点），替换为 `DTypeMax`/`DTypeMin`。
+- 若为 `NaN` 且不兼容（非浮点），静默跳过（概率归还给基础分布）。
+- 其他不兼容的值抛出 `std::invalid_argument`。
+
+后续阶段均在 `resolved` 列表上操作。
 
 ### 阶段 1 — 基础张量
 
-令 `p_sum = 所有离散条目概率之和`。
+令 `p_sum = resolved 列表中所有条目概率之和`。
 
 - 若 `p_sum >= 1.0 - 1e-9`（全离散模式）：分配一个零初始化的 `dtype` 张量（通过安全的中间类型——见下文"类型转换解决方案"）。
 - 否则：使用 `BaseDist`（Uniform、Normal、Exponential、LogNormal、Cauchy、Bernoulli 在 `float64` 精度下采样；RandInt、Poisson 在 `int64` 精度下采样），然后转换为 `dtype`。
@@ -116,10 +127,10 @@ DiscreteEntry(3.14, 0.1)               // double → raw 值 3.14
 
 ### 阶段 3 — 掩码覆盖
 
-按顺序遍历离散条目，维护累积概率 `cum`：
+按顺序遍历 `resolved` 列表，维护累积概率 `cum`：
 
 ```
-for each entry (value, p) in spec.discrete:
+for each entry (value, p) in resolved:
     if p == 0: 跳过
     if 这是最后一个非零条目 AND 全离散模式:
         mask = (selector >= cum)          # 吸收舍入余量
@@ -182,8 +193,8 @@ OCP MX 微缩放格式的指数-only 编码：8 位指数、0 位尾数、无符
 
 关键约束：
 - **无零**：`Zero` 对 E8M0 无效（指数 0 编码为 2^-127 而非 0）
-- **无负数**：`NOne`、`NInf` 无效
-- **无无穷大**：`Inf` 无效
+- **无负数**：`NOne` 无效（仍会抛出异常）
+- **无无穷大**：`Inf` 降级为 DTypeMax (2^127)；`NInf` 降级为 DTypeMin (2^-127)
 - **Epsilon = 1.0**：从 1.0 (2^0) 到下一个可表示值 2.0 (2^1) 的差为 1.0
 - **Tiny = DTypeMin = 2^(-127)**：最小可表示正值
 
@@ -284,7 +295,7 @@ struct TestCase {
 
 | 策略 | 主要参数 | 含义 |
 |------|----------|------|
-| `random_strategy` | `count`, `dtype`, `p_max`, `strict`, `exclude` | 随机选取特殊值种类和比例，生成 count 组配置；离散总概率 ≤ p_max；可通过 exclude 排除指定特殊值 |
+| `random_strategy` | `count`, `dtype`, `exclude`, `p_max`, `strict` | 随机选取特殊值种类和比例，生成 count 组配置；可通过 exclude 排除指定特殊值；离散总概率 ≤ p_max |
 | `fixed_categories_strategy` | `categories`, `count`, `dtype`, `p_max`, `strict` | 固定特殊值种类，仅随机分配各自比例；总概率 ≤ p_max |
 | `single_sv_strategy` | `sv`, `count`, `dtype`, `p`, `strict` | 单一特殊值，比例 ∈ (0, p]（strict=true 时固定为 p） |
 | `dual_sv_strategy` | `sv1`, `sv2`, `count`, `dtype`, `p0`, `p1`, `strict0`, `strict1` | 两种特殊值各自独立控制比例上限 |
@@ -300,10 +311,10 @@ struct TestCase {
 |------|------|
 | `count` | 生成的 TestCase 数量 |
 | `dtype` | 过滤哪些 SpecialValue 有效 |
+| `exclude` | 需要排除的 SpecialValue 列表（默认为空）；从有效候选池中移除指定类型 |
 | `p_max` | 离散概率总和上限（默认 1.0） |
 | `strict` | 若为 true，总和 == p_max；否则总和 ∈ (0, p_max] |
 | `generator` | 可选的 Generator 用于可复现性 |
-| `exclude` | 需要排除的 SpecialValue 列表（默认为空）；从有效候选池中移除指定类型 |
 
 算法：随机选取 k 个有效 SV，通过 Dirichlet(1,...,1) 缩放至目标值分配概率。
 

@@ -9,8 +9,8 @@ enum class SpecialValue {
     DTypeMin,
     DTypeMax,
     NaN,
-    Inf,        // +inf (float only, not e4m3fn/e8m0fnu)
-    NInf,       // -inf (float only, not e4m3fn/e8m0fnu)
+    Inf,        // +inf (float only, not e4m3fn/e4m3fnuz/e8m0fnu)
+    NInf,       // -inf (float only, not e4m3fn/e4m3fnuz/e8m0fnu)
     Epsilon,
     Tiny,
 };

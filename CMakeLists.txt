@@ -8,14 +8,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 list(APPEND CMAKE_PREFIX_PATH "/opt/libtorch")
 find_package(Torch REQUIRED)
 
-# Library: sources live under src/
-add_library(tensor_generator_lib
-    src/special_value.cpp
-    src/tensor_generator.cpp
-    src/strategies.cpp
-)
-target_include_directories(tensor_generator_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(tensor_generator_lib PUBLIC ${TORCH_LIBRARIES})
+# Header-only library: no add_library needed
+set(TENSOR_GEN_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(TENSOR_GEN_LIBS ${TORCH_LIBRARIES} pthread)
 
 # GTest (built from source)
 set(GTEST_ROOT "/opt/gtest")
@@ -26,15 +21,13 @@ add_executable(tensor_generator_test
     test/tensor_generator_test.cpp
 )
 target_include_directories(tensor_generator_test PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${TENSOR_GEN_INCLUDE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test
 )
 target_link_libraries(tensor_generator_test
-    tensor_generator_lib
     GTest::gtest
     GTest::gtest_main
-    ${TORCH_LIBRARIES}
-    pthread
+    ${TENSOR_GEN_LIBS}
 )
 
 # Test executable for convenience/strategies APIs
@@ -42,15 +35,13 @@ add_executable(test_convenience_strategies
     test/test_convenience_strategies.cpp
 )
 target_include_directories(test_convenience_strategies PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${TENSOR_GEN_INCLUDE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test
 )
 target_link_libraries(test_convenience_strategies
-    tensor_generator_lib
     GTest::gtest
     GTest::gtest_main
-    ${TORCH_LIBRARIES}
-    pthread
+    ${TENSOR_GEN_LIBS}
 )
 
 # RNG trajectory test (standalone, not gtest)
@@ -58,10 +49,8 @@ add_executable(test_rng_trajectory
     test/test_rng_trajectory.cpp
 )
 target_include_directories(test_rng_trajectory PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${TENSOR_GEN_INCLUDE}
 )
 target_link_libraries(test_rng_trajectory
-    tensor_generator_lib
-    ${TORCH_LIBRARIES}
-    pthread
+    ${TENSOR_GEN_LIBS}
 )

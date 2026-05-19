@@ -47,11 +47,14 @@ inline torch::Tensor generate_tensor(
     }
 
     // --- Resolve discrete entries (with dtype fallbacks) ---
+    // Track original sum for count mode validation (before NaN skip)
     std::vector<DiscreteEntry> discrete;
     double p_sum = 0.0;
+    double original_sum = 0.0;
     for (auto& e : spec.discrete) {
         if (e.probability < 0)
             throw std::invalid_argument("probability must be non-negative");
+        original_sum += e.probability;
         if (e.value.is_valid_for_dtype(dtype)) {
             discrete.push_back(e);
         } else if (e.value.is_special()) {
@@ -74,17 +77,18 @@ inline torch::Tensor generate_tensor(
     }
 
     // --- Auto-detect count mode ---
+    // Use original_sum (pre-skip) so NaN removal doesn't break detection.
     bool count_mode = spec.count_mode;
-    if (!count_mode && !discrete.empty()) {
+    if (!count_mode && !spec.discrete.empty()) {
         bool all_positive_int = true;
-        for (auto& e : discrete) {
+        for (auto& e : spec.discrete) {
             double p = e.probability;
             if (p < 1.0 || p != std::floor(p)) {
                 all_positive_int = false;
                 break;
             }
         }
-        if (all_positive_int && p_sum > 1.0 + 1e-9)
+        if (all_positive_int && original_sum > 1.0 + 1e-9)
             count_mode = true;
     }
 
@@ -94,19 +98,24 @@ inline torch::Tensor generate_tensor(
 
     bool all_discrete;
     if (count_mode) {
-        int64_t total_count = 0;
-        for (auto& e : discrete) {
+        // Validate against original user-declared sum so NaN-skipped
+        // entries still count toward the overflow check.
+        int64_t original_total = 0;
+        for (auto& e : spec.discrete) {
             double p = e.probability;
             if (p != std::floor(p) || p < 0)
                 throw std::invalid_argument(
                     "count mode requires non-negative integer counts");
-            total_count += (int64_t)p;
+            original_total += (int64_t)p;
         }
-        if (total_count > numel)
+        if (original_total > numel)
             throw std::invalid_argument(
-                "discrete counts sum (" + std::to_string(total_count) +
+                "discrete counts sum (" + std::to_string(original_total) +
                 ") exceeds tensor size (" + std::to_string(numel) + ")");
-        all_discrete = (total_count == numel);
+        int64_t resolved_count = 0;
+        for (auto& e : discrete)
+            resolved_count += (int64_t)e.probability;
+        all_discrete = (resolved_count == numel);
     } else {
         if (p_sum > 1.0 + 1e-9)
             throw std::invalid_argument("discrete probabilities exceed 1.0");

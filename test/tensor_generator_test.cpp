@@ -1440,6 +1440,64 @@ TEST(CountMode, ErrorNegativeCountInExplicitMode) {
         std::invalid_argument);
 }
 
+// --- NaN skip + count mode edge cases (found by review) ---
+
+TEST(CountMode, WithCountsNaNSkipBypassesNumelGuard) {
+    auto spec = TensorSpec::with_counts(
+        {{SpecialValue::NaN, 50.0}, {SpecialValue::Zero, 5.0}});
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kInt32, spec, BaseDist::randint(1, 100), 42),
+        std::invalid_argument);
+}
+
+TEST(CountMode, WithCountsNaNOnlyOnIntBypassesGuard) {
+    auto spec = TensorSpec::with_counts({{SpecialValue::NaN, 20.0}});
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kInt32, spec, BaseDist::randint(1, 100), 42),
+        std::invalid_argument);
+}
+
+TEST(CountMode, NaNSkipDropsSumToOne_StaysCountMode) {
+    auto t = generate_tensor({50}, torch::kInt32,
+        {{SpecialValue::NaN, 1.0}, {SpecialValue::Zero, 1.0}},
+        BaseDist::randint(10, 20), 42);
+    EXPECT_EQ((t == 0).sum().item<int64_t>(), 1);
+}
+
+// --- UInt64 count mode (found by review) ---
+
+TEST(CountMode, UInt64DTypeMax) {
+    auto t = generate_tensor({20}, c10::ScalarType::UInt64,
+        {{SpecialValue::DTypeMax, 5.0}, {SpecialValue::Zero, 3.0}},
+        BaseDist::randint(100, 200), 42);
+    auto t_i64 = t.to(torch::kInt64);
+    EXPECT_EQ((t_i64 == -1LL).sum().item<int64_t>(), 5);
+    EXPECT_EQ((t_i64 == 0LL).sum().item<int64_t>(), 3);
+}
+
+TEST(CountMode, UInt64NOne) {
+    auto t = generate_tensor({10}, c10::ScalarType::UInt64,
+        {{SpecialValue::NOne, 4.0}},
+        BaseDist::randint(100, 200), 42);
+    auto t_i64 = t.to(torch::kInt64);
+    EXPECT_EQ((t_i64 == -1LL).sum().item<int64_t>(), 4);
+}
+
+// --- Backward compat behavioral change (documented) ---
+
+TEST(CountMode, SingleIntProbGt1NowCountMode) {
+    torch::Tensor t;
+    ASSERT_NO_THROW(
+        t = generate_tensor({10}, torch::kFloat32,
+            {{SpecialValue::Zero, 2.0}},
+            BaseDist::uniform(1.0, 2.0), 42));
+    EXPECT_EQ((t == 0.0f).sum().item<int64_t>(), 2);
+    auto non_zero = t.masked_select(t != 0.0f);
+    EXPECT_EQ(non_zero.numel(), 8);
+    EXPECT_TRUE((non_zero >= 1.0f).all().item<bool>());
+    EXPECT_TRUE((non_zero < 2.0f).all().item<bool>());
+}
+
 // --- Stress: large tensor ---
 
 TEST(CountMode, LargeTensor) {

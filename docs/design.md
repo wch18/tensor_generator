@@ -354,21 +354,26 @@ struct TestCase {
 
 ## 附录：Seed 设置与 RNG 行为
 
-### 三种 RNG 模式
+### RNG 模式
 
-`generate_tensor` 内部使用 `torch::rand`/`torch::randn`/`torch::randint`/`torch::poisson` 进行随机采样。这些函数可以使用全局 RNG 或隔离的 `torch::Generator`，由此产生三种确定性行为：
+`generate_tensor` 内部使用 `torch::rand`/`torch::randn`/`torch::randint`/`torch::poisson` 进行随机采样。这些函数可以使用全局 RNG 或隔离的 `torch::Generator`，由此产生四种确定性行为：
 
-| 设置方式 | 示例 | 跨调用 | 跨运行 | RNG 作用域 |
-|----------|------|--------|--------|-----------|
-| `generate_tensor(..., seed=N)` | `generate_tensor(s, dt, spec, dist, 42)` | 每次**相同** | 相同 | 全局（`manual_seed`） |
-| 不传 seed，不用 Generator | `generate_tensor(s, dt, spec, dist)` | 每次**不同** | 不同 | 全局（未重置） |
-| `BaseDist` 工厂方法带 seed | `BaseDist::uniform(0, 1, 42)` | 每次**不同** | 相同 | 隔离 Generator |
+| 模式 | 多次调用 | 跨运行轨迹（生成的 Tensor 序列） |
+|------|----------|----------------------------------|
+| 完全不指定 seed | 每次不同 | 不可复现——每次运行产生不同序列 |
+| 全局通过 `torch::manual_seed` 指定 seed | 每次不同 | 可复现——同一程序内序列确定性推进，跨运行轨迹相同；但全局 RNG 会被其他随机调用干扰 |
+| 构造 `BaseDist` 时指定 seed | 每次不同 | 可复现——隔离 Generator 自动推进，跨运行轨迹相同；不受全局 RNG 影响 |
+| 通过 `generate_tensor` 指定 seed | 每次**相同** | 相同——每次调用都重置全局 RNG，因此始终产生同一个张量 |
 
 ### 工作原理
 
-**`generate_tensor` 的 `seed` 参数**每次调用都执行 `torch::manual_seed(seed)`，将全局 RNG 重置到固定状态。因此同参数反复调用始终产生完全相同的张量。缺点是影响全局状态——其他使用 `torch::rand` 的代码也会被重置。
+**完全不指定 seed：** 使用全局 RNG 的当前状态，状态随调用自然推进。由于全局 RNG 的初始状态在每次程序运行时不同，序列不可复现。
 
-**`BaseDist` 的 `seed` 参数**（或 `with_seed`/`with_generator`）在 `BaseDist` 内部创建一个 `torch::Generator` 实例。该 Generator 的状态在 `generate_tensor` 调用间自动推进，产生不同但确定性的张量序列，且完全不影响全局 RNG。
+**全局 `torch::manual_seed(seed)`：** 在程序开头调用一次，将全局 RNG 重置到固定状态。之后每次 `generate_tensor` 调用推进全局 RNG，产生确定性序列。缺点是任何其他使用 `torch::rand` 的代码（包括第三方库）也会消费和改变全局 RNG 状态，导致序列被干扰。
+
+**`BaseDist` 的 `seed` 参数**（或 `with_seed`/`with_generator`）：在 `BaseDist` 内部创建隔离的 `torch::Generator` 实例。该 Generator 的状态在 `generate_tensor` 调用间自动推进，产生不同但确定性的张量序列，且完全不影响全局 RNG。这是推荐的确定性方案。
+
+**`generate_tensor` 的 `seed` 参数：** 每次调用都执行 `torch::manual_seed(seed)`，将全局 RNG 重置到固定状态。因此同参数反复调用始终产生完全相同的张量——RNG 被重置而非推进。适用于需要固定某一个张量内容的场景。
 
 ### 优先级
 
@@ -376,7 +381,7 @@ struct TestCase {
 
 ### 验证
 
-`test_rng_trajectory` 程序验证上述三种模式的行为。运行两次并 diff 输出即可确认跨运行确定性：
+`test_rng_trajectory` 程序验证上述模式的行为。运行两次并 diff 输出即可确认跨运行确定性：
 
 ```bash
 ./test_rng_trajectory > /tmp/run1.txt

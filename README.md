@@ -237,17 +237,16 @@ docs/
 
 ## 附录：Seed 设置与 RNG 行为
 
-有三种方式控制随机数生成的确定性，对应不同的使用场景：
-
-| 设置方式 | 跨调用行为 | 跨运行行为 | 适用场景 |
-|----------|------------|------------|----------|
-| `generate_tensor(..., seed=42)` | 每次调用产生**相同**张量 | 相同 | 需要固定某一个张量内容 |
-| 不传 seed，不用 Generator | 每次调用产生**不同**张量 | 不同 | 不关心可复现性 |
-| `BaseDist::uniform(lo, hi, 42)` | 每次调用产生**不同**张量 | 相同 | 需要确定性序列且隔离 RNG |
+| 模式 | 多次调用 | 跨运行轨迹（生成的 Tensor 序列） |
+|------|----------|----------------------------------|
+| 完全不指定 seed | 每次不同 | 不可复现——每次运行产生不同序列 |
+| 全局通过 `torch::manual_seed` 指定 seed | 每次不同 | 可复现——同一程序内序列确定性推进，跨运行轨迹相同；但全局 RNG 会被其他随机调用干扰 |
+| 构造 `BaseDist` 时指定 seed | 每次不同 | 可复现——隔离 Generator 自动推进，跨运行轨迹相同；不受全局 RNG 影响 |
+| 通过 `generate_tensor` 指定 seed | 每次**相同** | 相同——每次调用都重置全局 RNG，因此始终产生同一个张量 |
 
 **说明：**
 
-- `generate_tensor` 的 `seed` 参数每次调用都重置全局 RNG（`torch::manual_seed`），因此同参数反复调用总是得到同一个张量。
-- `BaseDist` 的 `seed` 参数创建隔离的 `torch::Generator`，其状态在调用间自动推进。同一个 `BaseDist` 实例的连续调用产生不同但确定性的张量序列，且不影响全局 RNG。
+- `generate_tensor` 的 `seed` 参数每次调用都执行 `torch::manual_seed`，RNG 被重置而非推进，因此多次调用得到的是同一个张量而非序列。
+- `BaseDist` 的 `seed` 参数创建隔离的 `torch::Generator`，其状态在调用间自动推进，产生不同但确定性的张量序列，且不影响全局 RNG。
 - 当 `BaseDist` 携带 Generator 时，`generate_tensor` 的 `seed` 参数无效——所有 RNG 采样均使用隔离的 Generator。
 - 可通过 `test_rng_trajectory` 程序验证上述行为：运行两次并 diff 输出即可确认跨运行确定性。

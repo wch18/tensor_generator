@@ -164,6 +164,96 @@ These cover specific behaviours that the cartesian sweep may exercise only stati
 
 ---
 
+## Convenience APIs (`convenience.h`)
+
+Header-only module providing shorthand functions for common tensor generation patterns. All functions use `Uniform(0, 1)` as default base distribution.
+
+### Base Distribution Generators
+
+```cpp
+make_uniform_tensor(shape, dtype=kFloat32, lo=0.0, hi=1.0, generator=nullopt)
+make_normal_tensor(shape, dtype=kFloat32, mean=0.0, std=1.0, generator=nullopt)
+make_randint_tensor(shape, dtype=kInt32, lo=0, hi=100, generator=nullopt)
+```
+
+### Single SpecialValue Functions
+
+```cpp
+tensor_with_one_sv(sv, shape, dtype=kFloat32, ratio=0.01, generator=nullopt)  // generic
+tensor_with_nan(shape, dtype=kFloat32, nan_ratio=0.01, generator=nullopt)     // named
+// 10 named variants: zero, one, none, min, max, nan, inf, ninf, epsilon, tiny
+```
+
+### Dual SpecialValue Functions
+
+```cpp
+tensor_with_two_sv(sv1, ratio1, sv2, ratio2, shape, dtype=kFloat32, generator=nullopt)  // generic
+tensor_with_inf_nan(shape, dtype=kFloat32, inf_ratio=0.01, nan_ratio=0.01, generator=nullopt)
+// 45 named variants (all C(10,2) pairs), generated via X-macro
+```
+
+Naming convention: short names sorted alphabetically (`epsilon` < `inf` < `max` < `min` < `nan` < `ninf` < `none` < `one` < `tiny` < `zero`).
+
+---
+
+## Strategy Generators (`strategies.h/.cpp`)
+
+Produce `std::vector<TestCase>` for systematic tensor generation loops.
+
+```cpp
+struct TestCase {
+    TensorSpec spec;    // discrete entries
+    BaseDist dist;      // base distribution (default Uniform(0,1))
+    std::string label;  // human-readable identifier
+};
+```
+
+### 2a — Random Strategy
+
+Randomly selects SpecialValue types AND probabilities, filtered by dtype validity.
+
+| Parameter | Description |
+|-----------|-------------|
+| `count` | Number of TestCases to generate |
+| `dtype` | Filters which SpecialValues are valid |
+| `p_max` | Ceiling for total discrete probability (default 1.0) |
+| `strict` | If true, sum == p_max; otherwise sum ∈ (0, p_max] |
+| `generator` | Optional Generator for reproducibility |
+
+Algorithm: picks k random valid SVs, assigns probabilities via Dirichlet(1,...,1) scaled to target.
+
+### 2b — Fixed Categories Strategy
+
+Same as random, but user specifies which SpecialValues to include. Only ratios are randomized.
+
+### 2c — Single/Dual Category Strategies
+
+Named wrappers with explicit probability targets per category.
+
+- `single_sv_strategy(sv, count, dtype, p=0.5, strict=false, gen)` — one SV with ratio in (0, p] (or exactly p if strict)
+- `dual_sv_strategy(sv1, sv2, count, dtype, p0=0.3, p1=0.3, strict0=false, strict1=false, gen)` — two SVs with independent ratio constraints, clamped so sum ≤ 1.0
+
+### 2d — Grid Strategies
+
+Deterministic or semi-deterministic coverage patterns.
+
+**2d-i: Single Value Grid** (`grid_single_value(dtype)`)
+
+One TestCase per valid SpecialValue at 100% probability. Produces N cases where N = count of valid SVs for dtype (e.g., 10 for float32, 5 for int32).
+
+**2d-ii: Full Mix Grid** (`grid_full_mix(dtype, min_count=50, gen)`)
+
+All valid SVs + "normal" mixed at 10% grid granularity. Each proportion is a multiple of 10%, all sum to 100%. Randomly samples unique grid-aligned compositions by distributing 10 "slots" among k categories. Guarantees ≥ min_count unique configurations.
+
+**2d-iii: Pairwise Grid** (`grid_pairwise(dtype)`)
+
+For each unordered pair of valid SVs, generates 5 configs at 25% grid points:
+(100%, 0%), (75%, 25%), (50%, 50%), (25%, 75%), (0%, 100%).
+
+Total cases = C(N, 2) × 5 where N = count of valid SVs (e.g., 225 for float32, 50 for int32).
+
+---
+
 ## Supported Dtypes Table
 
 | dtype | PyTorch constant | Bits | Signed | Float |

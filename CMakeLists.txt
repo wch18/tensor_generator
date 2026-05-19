@@ -12,6 +12,7 @@ find_package(Torch REQUIRED)
 add_library(tensor_generator_lib
     src/special_value.cpp
     src/tensor_generator.cpp
+    src/strategies.cpp
 )
 target_include_directories(tensor_generator_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(tensor_generator_lib PUBLIC ${TORCH_LIBRARIES})
@@ -29,6 +30,22 @@ target_include_directories(tensor_generator_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/test
 )
 target_link_libraries(tensor_generator_test
+    tensor_generator_lib
+    GTest::gtest
+    GTest::gtest_main
+    ${TORCH_LIBRARIES}
+    pthread
+)
+
+# Test executable for convenience/strategies APIs
+add_executable(test_convenience_strategies
+    test/test_convenience_strategies.cpp
+)
+target_include_directories(test_convenience_strategies PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/test
+)
+target_link_libraries(test_convenience_strategies
     tensor_generator_lib
     GTest::gtest
     GTest::gtest_main

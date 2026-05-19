@@ -46,6 +46,19 @@ torch::Tensor generate_tensor(
 
 `TensorSpec` 仅包含离散条目。`BaseDist` 是控制连续基础分布的独立参数。`seed` 提供可复现性，无需调用方管理全局 RNG 状态。
 
+### BaseDist 类型
+
+| 类型 | 工厂方法 | 参数 | 采样方式 | dtype 限制 |
+|------|----------|------|----------|------------|
+| Uniform | `BaseDist::uniform(lo, hi)` | lo（下界）、hi（上界） | `torch::rand` 线性变换 | 无 |
+| Normal | `BaseDist::normal(mean, std)` | mean（均值）、std（标准差） | `torch::randn` 仿射变换 | 无 |
+| RandInt | `BaseDist::randint(lo, hi)` | lo（含）、hi（不含） | `torch::randint` | 仅整数 |
+| Exponential | `BaseDist::exponential(lambda)` | lambda（速率） | 逆 CDF：`-log1p(-U)/λ` | 无 |
+| Poisson | `BaseDist::poisson(rate)` | rate（λ） | `torch::poisson` | 仅整数 |
+| LogNormal | `BaseDist::lognormal(mean, std)` | mean（对数均值）、std（对数标准差） | `exp(mean + std * Z)` | 无 |
+| Cauchy | `BaseDist::cauchy(median, sigma)` | median（位置）、sigma（尺度） | 逆 CDF：`median + σ·tan(π(U-0.5))` | 无 |
+| Bernoulli | `BaseDist::bernoulli(p)` | p（成功概率） | `U < p` → 1.0, 否则 0.0 | 无 |
+
 ---
 
 ## "基础层 + 掩码覆盖"算法
@@ -57,7 +70,7 @@ torch::Tensor generate_tensor(
 令 `p_sum = 所有离散条目概率之和`。
 
 - 若 `p_sum >= 1.0 - 1e-9`（全离散模式）：分配一个零初始化的 `dtype` 张量（通过安全的中间类型——见下文"类型转换解决方案"）。
-- 否则：使用 `BaseDist`（均匀 `U(lo, hi)` 或正态 `N(mu, sigma)`）在 `float64` 精度下采样连续基础张量，然后转换为 `dtype`。
+- 否则：使用 `BaseDist`（Uniform、Normal、Exponential、LogNormal、Cauchy、Bernoulli 在 `float64` 精度下采样；RandInt、Poisson 在 `int64` 精度下采样），然后转换为 `dtype`。
 
 ### 阶段 2 — 选择器张量
 
@@ -176,6 +189,11 @@ PyTorch 的 `masked_fill_` 在目标 dtype 为 FP8 时不接受标量。解决�
 make_uniform_tensor(shape, dtype=kFloat32, lo=0.0, hi=1.0, generator=nullopt)
 make_normal_tensor(shape, dtype=kFloat32, mean=0.0, std=1.0, generator=nullopt)
 make_randint_tensor(shape, dtype=kInt32, lo=0, hi=100, generator=nullopt)
+make_exponential_tensor(shape, dtype=kFloat32, lambda=1.0, generator=nullopt)
+make_poisson_tensor(shape, dtype=kInt32, rate=1.0, generator=nullopt)
+make_lognormal_tensor(shape, dtype=kFloat32, mean=0.0, std=1.0, generator=nullopt)
+make_cauchy_tensor(shape, dtype=kFloat32, median=0.0, sigma=1.0, generator=nullopt)
+make_bernoulli_tensor(shape, dtype=kFloat32, p=0.5, generator=nullopt)
 ```
 
 ### 单类 SpecialValue 函数
@@ -209,6 +227,18 @@ struct TestCase {
     std::string label;  // 可读标识符
 };
 ```
+
+**策略一览：**
+
+| 策略 | 主要参数 | 含义 |
+|------|----------|------|
+| `random_strategy` | `count`, `dtype`, `p_max`, `strict` | 随机选取特殊值种类和比例，生成 count 组配置；离散总概率 ≤ p_max |
+| `fixed_categories_strategy` | `categories`, `count`, `dtype`, `p_max`, `strict` | 固定特殊值种类，仅随机分配各自比例；总概率 ≤ p_max |
+| `single_sv_strategy` | `sv`, `count`, `dtype`, `p`, `strict` | 单一特殊值，比例 ∈ (0, p]（strict=true 时固定为 p） |
+| `dual_sv_strategy` | `sv1`, `sv2`, `count`, `dtype`, `p0`, `p1`, `strict0`, `strict1` | 两种特殊值各自独立控制比例上限 |
+| `grid_single_value` | `dtype` | 每种有效特殊值各生成一个 100% 纯填充配置 |
+| `grid_full_mix` | `dtype`, `min_count` | 所有特殊值 + 底噪，以 10% 粒度随机组合，去重后至少 min_count 个 |
+| `grid_pairwise` | `dtype` | 两两配对，按 (100,0)/(75,25)/(50,50)/(25,75)/(0,100) 五档网格展开 |
 
 ### 2a — 全随机策略
 

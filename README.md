@@ -8,7 +8,7 @@
 
 - **支持 15 种 dtype**：uint8/16/32/64、int8/16/32/64、float16/bfloat16/float32/float64、bool、float8_e4m3fn、float8_e5m2
 - **离散特殊值**：Zero、One、NOne、DTypeMin、DTypeMax、NaN、Inf、NInf、Epsilon、Tiny
-- **基础分布**：Uniform、Normal、RandInt（带 dtype 兼容性校验）
+- **基础分布**：Uniform、Normal、RandInt、Exponential、Poisson、LogNormal、Cauchy、Bernoulli
 - **概率混合**：以指定概率将离散值与连续/整数背景分布组合
 - **便捷接口**：常用模式的一行调用函数（`tensor_with_nan`、`tensor_with_inf_nan` 等）
 - **策略生成器**：为系统化覆盖生成测试用例配置（随机、网格、两两组合）
@@ -68,31 +68,36 @@ auto t3 = generate_tensor({1000}, torch::kFloat64,
 auto t1 = make_uniform_tensor({1000}, torch::kFloat32, 0.0, 1.0);
 auto t2 = make_normal_tensor({1000}, torch::kFloat64, 0.0, 1.0);
 auto t3 = make_randint_tensor({1000}, torch::kInt32, -100, 100);
+auto t4 = make_exponential_tensor({1000}, torch::kFloat32, /*lambda=*/2.0);
+auto t5 = make_poisson_tensor({1000}, torch::kInt32, /*rate=*/5.0);
+auto t6 = make_lognormal_tensor({1000}, torch::kFloat32, /*mean=*/0.0, /*std=*/1.0);
+auto t7 = make_cauchy_tensor({1000}, torch::kFloat32, /*median=*/0.0, /*sigma=*/1.0);
+auto t8 = make_bernoulli_tensor({1000}, torch::kFloat32, /*p=*/0.3);
 
 // --- 单类特殊值（10 个命名函数） ---
-auto t4 = tensor_with_nan({1000}, torch::kFloat32, 0.1);
-auto t5 = tensor_with_inf({1000}, torch::kFloat32, 0.05);
-auto t6 = tensor_with_zero({1000}, torch::kFloat32, 0.2);
+auto t9 = tensor_with_nan({1000}, torch::kFloat32, 0.1);
+auto t10 = tensor_with_inf({1000}, torch::kFloat32, 0.05);
+auto t11 = tensor_with_zero({1000}, torch::kFloat32, 0.2);
 // 还有：tensor_with_one, tensor_with_none, tensor_with_min, tensor_with_max,
 //       tensor_with_ninf, tensor_with_epsilon, tensor_with_tiny
 
 // --- 通用单类特殊值 ---
-auto t7 = tensor_with_one_sv(SpecialValue::NaN, {1000}, torch::kFloat32, 0.1);
+auto t12 = tensor_with_one_sv(SpecialValue::NaN, {1000}, torch::kFloat32, 0.1);
 
 // --- 双类特殊值（45 个命名函数） ---
-auto t8 = tensor_with_inf_nan({1000}, torch::kFloat32, 0.1, 0.05);
-auto t9 = tensor_with_max_min({1000}, torch::kInt32, 0.2, 0.2);
+auto t13 = tensor_with_inf_nan({1000}, torch::kFloat32, 0.1, 0.05);
+auto t14 = tensor_with_max_min({1000}, torch::kInt32, 0.2, 0.2);
 // 全部 C(10,2) = 45 对组合均可用
 
 // --- 通用双类特殊值 ---
-auto t10 = tensor_with_two_sv(
+auto t15 = tensor_with_two_sv(
     SpecialValue::NaN, 0.1, SpecialValue::Inf, 0.05,
     {1000}, torch::kFloat32);
 
 // --- 使用 Generator 确保可复现 ---
 auto gen = at::detail::createCPUGenerator();
 gen.set_current_seed(42);
-auto t11 = tensor_with_nan({1000}, torch::kFloat32, 0.1, gen);
+auto t16 = tensor_with_nan({1000}, torch::kFloat32, 0.1, gen);
 ```
 
 ## 策略生成器
@@ -123,12 +128,24 @@ auto single = grid_single_value(torch::kFloat32);       // 10 组（每种 SV �
 auto mixed  = grid_full_mix(torch::kFloat32, 50);       // >=50 组唯一的 10% 网格配置
 auto pairs  = grid_pairwise(torch::kFloat32);           // 225 组（45 对 × 5 个网格点）
 
-// --- 遍历生成张量 ---
+// --- 遍历生成张量（可替换 BaseDist） ---
 for (auto& tc : cases) {
+    tc.dist = BaseDist::exponential(1.0);  // 覆盖底噪为指数分布
     auto tensor = generate_tensor({1000}, torch::kFloat32, tc.spec, tc.dist);
-    // 使用 tensor 测试你的数值代码...
 }
 ```
+
+**策略一览：**
+
+| 策略 | 主要参数 | 含义 |
+|------|----------|------|
+| `random_strategy` | `count`, `dtype`, `p_max`, `strict` | 随机选取特殊值种类和比例，生成 count 组配置；离散总概率 ≤ p_max |
+| `fixed_categories_strategy` | `categories`, `count`, `dtype`, `p_max`, `strict` | 固定特殊值种类，仅随机分配各自比例；总概率 ≤ p_max |
+| `single_sv_strategy` | `sv`, `count`, `dtype`, `p`, `strict` | 单一特殊值，比例 ∈ (0, p]（strict=true 时固定为 p） |
+| `dual_sv_strategy` | `sv1`, `sv2`, `count`, `dtype`, `p0`, `p1`, `strict0`, `strict1` | 两种特殊值各自独立控制比例上限 |
+| `grid_single_value` | `dtype` | 每种有效特殊值各生成一个 100% 纯填充配置 |
+| `grid_full_mix` | `dtype`, `min_count` | 所有特殊值 + 底噪，以 10% 粒度随机组合，去重后至少 min_count 个 |
+| `grid_pairwise` | `dtype` | 两两配对，按 (100,0)/(75,25)/(50,50)/(25,75)/(0,100) 五档网格展开 |
 
 ## 核心 API
 
@@ -148,6 +165,11 @@ BaseDist{}                          // Uniform(-1, 1)
 BaseDist::uniform(lo, hi)           // 均匀分布 [lo, hi]
 BaseDist::normal(mean, std)         // 正态分布 N(mean, std)
 BaseDist::randint(lo, hi)           // 整数均匀分布 [lo, hi)
+BaseDist::exponential(lambda)       // 指数分布 Exp(lambda)
+BaseDist::poisson(rate)             // 泊松分布 Poisson(rate)
+BaseDist::lognormal(mean, std)      // 对数正态分布 LogN(mean, std)
+BaseDist::cauchy(median, sigma)     // 柯西分布 Cauchy(median, sigma)
+BaseDist::bernoulli(p)              // 伯努利分布 Bernoulli(p)
 BaseDist(torch::Generator gen)      // 隐式转换：Uniform(-1,1) + generator
 dist.with_generator(gen)            // 为任意分布绑定 generator
 ```
@@ -159,6 +181,11 @@ dist.with_generator(gen)            // 为任意分布绑定 generator
 | Uniform | 可用 | 可用（截断） | 可用 |
 | Normal | 可用 | 可用（截断） | 可用 |
 | RandInt | 报错 | 可用 | 报错 |
+| Exponential | 可用 | 可用（截断） | 可用 |
+| Poisson | 报错 | 可用 | 报错 |
+| LogNormal | 可用 | 可用（截断） | 可用 |
+| Cauchy | 可用 | 可用（截断） | 可用 |
+| Bernoulli | 可用 | 可用（截断） | 可用 |
 
 **SpecialValue 枚举：**
 

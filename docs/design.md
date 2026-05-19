@@ -284,7 +284,7 @@ struct TestCase {
 
 | 策略 | 主要参数 | 含义 |
 |------|----------|------|
-| `random_strategy` | `count`, `dtype`, `p_max`, `strict` | 随机选取特殊值种类和比例，生成 count 组配置；离散总概率 ≤ p_max |
+| `random_strategy` | `count`, `dtype`, `p_max`, `strict`, `exclude` | 随机选取特殊值种类和比例，生成 count 组配置；离散总概率 ≤ p_max；可通过 exclude 排除指定特殊值 |
 | `fixed_categories_strategy` | `categories`, `count`, `dtype`, `p_max`, `strict` | 固定特殊值种类，仅随机分配各自比例；总概率 ≤ p_max |
 | `single_sv_strategy` | `sv`, `count`, `dtype`, `p`, `strict` | 单一特殊值，比例 ∈ (0, p]（strict=true 时固定为 p） |
 | `dual_sv_strategy` | `sv1`, `sv2`, `count`, `dtype`, `p0`, `p1`, `strict0`, `strict1` | 两种特殊值各自独立控制比例上限 |
@@ -303,6 +303,7 @@ struct TestCase {
 | `p_max` | 离散概率总和上限（默认 1.0） |
 | `strict` | 若为 true，总和 == p_max；否则总和 ∈ (0, p_max] |
 | `generator` | 可选的 Generator 用于可复现性 |
+| `exclude` | 需要排除的 SpecialValue 列表（默认为空）；从有效候选池中移除指定类型 |
 
 算法：随机选取 k 个有效 SV，通过 Dirichlet(1,...,1) 缩放至目标值分配概率。
 

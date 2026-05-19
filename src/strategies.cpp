@@ -94,10 +94,20 @@ std::vector<TestCase> random_strategy(
     torch::ScalarType dtype,
     double p_max,
     bool strict,
-    c10::optional<torch::Generator> generator)
+    c10::optional<torch::Generator> generator,
+    const std::vector<SpecialValue>& exclude)
 {
     auto gen = ensure_gen(generator);
     auto valid = valid_svs_for_dtype(dtype);
+    if (!exclude.empty()) {
+        valid.erase(
+            std::remove_if(valid.begin(), valid.end(),
+                [&](SpecialValue sv) {
+                    return std::find(exclude.begin(), exclude.end(), sv)
+                           != exclude.end();
+                }),
+            valid.end());
+    }
     if (valid.empty()) return {};
 
     std::vector<TestCase> result;

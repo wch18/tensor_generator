@@ -268,6 +268,50 @@ TEST(RandomStrategy, GeneratesValidTensors) {
     }
 }
 
+TEST(RandomStrategy, ExcludeRemovesValues) {
+    auto cases = random_strategy(50, torch::kFloat32, 1.0, true,
+        c10::nullopt, {SpecialValue::NaN, SpecialValue::Inf, SpecialValue::NInf});
+    for (auto& tc : cases) {
+        for (auto& e : tc.spec.discrete) {
+            EXPECT_NE(e.value, SpecialValue::NaN);
+            EXPECT_NE(e.value, SpecialValue::Inf);
+            EXPECT_NE(e.value, SpecialValue::NInf);
+        }
+    }
+}
+
+TEST(RandomStrategy, ExcludeAllReturnsEmpty) {
+    auto cases = random_strategy(10, torch::kBool, 1.0, false,
+        c10::nullopt,
+        {SpecialValue::Zero, SpecialValue::One, SpecialValue::NOne,
+         SpecialValue::DTypeMin, SpecialValue::DTypeMax,
+         SpecialValue::NaN, SpecialValue::Inf, SpecialValue::NInf,
+         SpecialValue::Epsilon, SpecialValue::Tiny});
+    EXPECT_TRUE(cases.empty());
+}
+
+TEST(RandomStrategy, ExcludeSubsetGeneratesValidTensors) {
+    auto cases = random_strategy(20, torch::kFloat32, 0.5, false,
+        c10::nullopt, {SpecialValue::NaN, SpecialValue::Inf});
+    for (auto& tc : cases) {
+        EXPECT_NO_THROW(generate_tensor({100}, torch::kFloat32, tc.spec, tc.dist));
+    }
+}
+
+TEST(RandomStrategy, ExcludeWithReproducibility) {
+    auto gen1 = at::detail::createCPUGenerator();
+    gen1.set_current_seed(42);
+    auto gen2 = at::detail::createCPUGenerator();
+    gen2.set_current_seed(42);
+    auto exclude = std::vector<SpecialValue>{SpecialValue::NaN};
+    auto cases1 = random_strategy(5, torch::kFloat32, 0.5, false, gen1, exclude);
+    auto cases2 = random_strategy(5, torch::kFloat32, 0.5, false, gen2, exclude);
+    ASSERT_EQ(cases1.size(), cases2.size());
+    for (size_t i = 0; i < cases1.size(); ++i) {
+        EXPECT_EQ(cases1[i].label, cases2[i].label);
+    }
+}
+
 // --- 2b: fixed_categories_strategy tests ------------------------------------
 
 TEST(FixedCategoriesStrategy, UsesOnlySpecifiedCategories) {

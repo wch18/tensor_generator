@@ -357,6 +357,15 @@ for (auto& tc : cases) {
 }
 ```
 
+可以通过 `exclude` 参数排除不想出现的特殊值：
+
+```cpp
+// 随机组合，但排除 NaN 和 Inf
+auto cases = random_strategy(50, torch::kFloat32, 0.5, false,
+    c10::nullopt, {SpecialValue::NaN, SpecialValue::Inf});
+// 生成的配置中不会包含 NaN 或 Inf
+```
+
 ### 策略 2：固定类别
 
 指定只用 NaN、Inf、DTypeMax 这三种，但比例随机：

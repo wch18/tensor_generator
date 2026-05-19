@@ -20,12 +20,14 @@ struct TestCase {
 // Randomly selects SpecialValue types AND ratios.
 // p_max: total probability ceiling (0 < p_max <= 1).
 // strict: if true, probabilities sum to exactly p_max; otherwise <= p_max.
+// exclude: SpecialValues to exclude from the candidate pool.
 std::vector<TestCase> random_strategy(
     int count,
     torch::ScalarType dtype,
     double p_max = 1.0,
     bool strict = false,
-    c10::optional<torch::Generator> generator = c10::nullopt);
+    c10::optional<torch::Generator> generator = c10::nullopt,
+    const std::vector<SpecialValue>& exclude = {});
 
 // --- 2b: Fixed categories strategy ------------------------------------------
 // User specifies which SpecialValues to use; ratios are randomized.

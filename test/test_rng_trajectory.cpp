@@ -9,6 +9,7 @@
 //   Mode 1: seed param on generate_tensor  → same tensor every call
 //   Mode 2: no seed, no generator          → different tensors, non-reproducible
 //   Mode 3: BaseDist with seed             → different tensors, reproducible
+//   Mode 4: global manual_seed             → reproducible, but fragile under interference
 
 #include "tensor_generator.h"
 #include <iostream>
@@ -107,6 +108,63 @@ int main() {
                   << "  cauchy="      << checksum(c)
                   << "  bernoulli="   << checksum(b) << "\n";
         std::cout << "  (these checksums must be identical across program runs)\n";
+    }
+
+    // ================================================================
+    // Mode 4: global manual_seed — reproducible but fragile
+    // ================================================================
+
+    // 4a: without interference → reproducible sequence
+    {
+        torch::manual_seed(42);
+        auto t1 = generate_tensor(shape, dtype, spec, BaseDist::uniform(0, 1));
+        auto t2 = generate_tensor(shape, dtype, spec, BaseDist::uniform(0, 1));
+
+        torch::manual_seed(42);
+        auto t1r = generate_tensor(shape, dtype, spec, BaseDist::uniform(0, 1));
+        auto t2r = generate_tensor(shape, dtype, spec, BaseDist::uniform(0, 1));
+
+        bool seq_match = t1.equal(t1r) && t2.equal(t2r);
+        bool advancing = !t1.equal(t2);
+        std::cout << "\n[Mode 4a] manual_seed without interference: "
+                  << "reproducible=" << (seq_match ? "PASS" : "FAIL")
+                  << " advancing=" << (advancing ? "PASS" : "FAIL") << "\n";
+        print_checksums("[Mode 4a]", t1, t2, t1r);
+        std::cout << "[Mode 4a] (these checksums must be identical across program runs)\n";
+    }
+
+    // 4b: with interference → sequence disrupted
+    {
+        torch::manual_seed(42);
+        auto t1 = generate_tensor(shape, dtype, spec, BaseDist::uniform(0, 1));
+        auto t2 = generate_tensor(shape, dtype, spec, BaseDist::uniform(0, 1));
+
+        torch::manual_seed(42);
+        auto t1i = generate_tensor(shape, dtype, spec, BaseDist::uniform(0, 1));
+        auto noise = torch::rand({100});  // interference: consumes global RNG
+        auto t2i = generate_tensor(shape, dtype, spec, BaseDist::uniform(0, 1));
+
+        bool first_match = t1.equal(t1i);   // before interference: should match
+        bool second_match = t2.equal(t2i);  // after interference: should NOT match
+        std::cout << "[Mode 4b] manual_seed with interference: "
+                  << "before=" << (first_match ? "PASS" : "FAIL")
+                  << " disrupted=" << (!second_match ? "PASS" : "FAIL") << "\n";
+    }
+
+    // 4c: BaseDist seed is immune to interference
+    {
+        auto dist1 = BaseDist::uniform(0.0, 1.0, /*seed=*/42);
+        auto t1 = generate_tensor(shape, dtype, spec, dist1);
+        auto t2 = generate_tensor(shape, dtype, spec, dist1);
+
+        auto dist2 = BaseDist::uniform(0.0, 1.0, /*seed=*/42);
+        auto t1i = generate_tensor(shape, dtype, spec, dist2);
+        auto noise = torch::rand({100});  // interference: only affects global RNG
+        auto t2i = generate_tensor(shape, dtype, spec, dist2);
+
+        bool both_match = t1.equal(t1i) && t2.equal(t2i);
+        std::cout << "[Mode 4c] BaseDist seed immune to interference: "
+                  << (both_match ? "PASS" : "FAIL") << "\n";
     }
 
     // ================================================================

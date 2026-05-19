@@ -199,6 +199,7 @@ struct DiscreteEntry {
 
 struct TensorSpec {
     std::vector<DiscreteEntry> discrete;
+    bool count_mode = false;
 
     TensorSpec() = default;
 
@@ -207,4 +208,18 @@ struct TensorSpec {
 
     explicit TensorSpec(std::vector<DiscreteEntry> entries)
         : discrete(std::move(entries)) {}
+
+    static TensorSpec with_counts(std::initializer_list<DiscreteEntry> entries) {
+        TensorSpec s;
+        s.discrete = entries;
+        s.count_mode = true;
+        return s;
+    }
+
+    static TensorSpec with_counts(std::vector<DiscreteEntry> entries) {
+        TensorSpec s;
+        s.discrete = std::move(entries);
+        s.count_mode = true;
+        return s;
+    }
 };

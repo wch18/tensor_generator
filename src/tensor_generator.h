@@ -46,6 +46,7 @@ inline torch::Tensor generate_tensor(
         torch::manual_seed(seed.value());
     }
 
+    // --- Resolve discrete entries (with dtype fallbacks) ---
     std::vector<DiscreteEntry> discrete;
     double p_sum = 0.0;
     for (auto& e : spec.discrete) {
@@ -71,11 +72,48 @@ inline torch::Tensor generate_tensor(
         }
         p_sum += discrete.back().probability;
     }
-    if (p_sum > 1.0 + 1e-9)
-        throw std::invalid_argument("discrete probabilities exceed 1.0");
 
-    bool all_discrete = (p_sum >= 1.0 - 1e-9);
+    // --- Auto-detect count mode ---
+    bool count_mode = spec.count_mode;
+    if (!count_mode && !discrete.empty()) {
+        bool all_positive_int = true;
+        for (auto& e : discrete) {
+            double p = e.probability;
+            if (p < 1.0 || p != std::floor(p)) {
+                all_positive_int = false;
+                break;
+            }
+        }
+        if (all_positive_int && p_sum > 1.0 + 1e-9)
+            count_mode = true;
+    }
 
+    // --- Mode-specific validation ---
+    int64_t numel = 1;
+    for (auto d : shape) numel *= d;
+
+    bool all_discrete;
+    if (count_mode) {
+        int64_t total_count = 0;
+        for (auto& e : discrete) {
+            double p = e.probability;
+            if (p != std::floor(p) || p < 0)
+                throw std::invalid_argument(
+                    "count mode requires non-negative integer counts");
+            total_count += (int64_t)p;
+        }
+        if (total_count > numel)
+            throw std::invalid_argument(
+                "discrete counts sum (" + std::to_string(total_count) +
+                ") exceeds tensor size (" + std::to_string(numel) + ")");
+        all_discrete = (total_count == numel);
+    } else {
+        if (p_sum > 1.0 + 1e-9)
+            throw std::invalid_argument("discrete probabilities exceed 1.0");
+        all_discrete = (p_sum >= 1.0 - 1e-9);
+    }
+
+    // --- Validate BaseDist / dtype compatibility ---
     if (!all_discrete) {
         if (base_dist.type == BaseDistType::RandInt) {
             if (is_float_dtype(dtype))
@@ -95,6 +133,7 @@ inline torch::Tensor generate_tensor(
         }
     }
 
+    // --- Generate base tensor ---
     auto f64_opts = torch::TensorOptions().dtype(torch::kFloat64);
     auto i64_opts = torch::TensorOptions().dtype(torch::kInt64);
     auto gen = base_dist.generator;
@@ -180,36 +219,60 @@ inline torch::Tensor generate_tensor(
         result = base.to(dtype);
     }
 
-    if (discrete.empty() || result.numel() == 0)
+    if (discrete.empty() || numel == 0)
         return result;
 
-    torch::Tensor selector;
-    if (gen.defined())
-        selector = torch::rand(shape, gen, f64_opts);
-    else
-        selector = torch::rand(shape, f64_opts);
+    // --- Apply discrete values ---
+    if (count_mode) {
+        // Count mode: permutation-based exact placement
+        torch::Tensor perm;
+        if (gen.defined())
+            perm = torch::randperm(numel, gen, i64_opts);
+        else
+            perm = torch::randperm(numel, i64_opts);
 
-    int last_active = -1;
-    for (int i = (int)discrete.size() - 1; i >= 0; --i) {
-        if (discrete[i].probability > 0) {
-            last_active = i;
-            break;
+        int64_t offset = 0;
+        for (auto& e : discrete) {
+            int64_t count = (int64_t)e.probability;
+            if (count <= 0) continue;
+
+            auto indices = perm.slice(0, offset, offset + count);
+            auto mask = torch::zeros({numel}, torch::kBool);
+            mask.index_fill_(0, indices, true);
+            mask = mask.view(shape);
+            safe_masked_fill(result, mask, e.value, dtype);
+            offset += count;
         }
-    }
+    } else {
+        // Probability mode: selector-based stochastic placement
+        torch::Tensor selector;
+        if (gen.defined())
+            selector = torch::rand(shape, gen, f64_opts);
+        else
+            selector = torch::rand(shape, f64_opts);
 
-    double cum = 0.0;
-    for (int i = 0; i < (int)discrete.size(); ++i) {
-        if (discrete[i].probability <= 0) continue;
-
-        torch::Tensor mask;
-        if (i == last_active && all_discrete) {
-            mask = (selector >= cum);
-        } else {
-            mask = (selector >= cum) & (selector < cum + discrete[i].probability);
+        int last_active = -1;
+        for (int i = (int)discrete.size() - 1; i >= 0; --i) {
+            if (discrete[i].probability > 0) {
+                last_active = i;
+                break;
+            }
         }
 
-        safe_masked_fill(result, mask, discrete[i].value, dtype);
-        cum += discrete[i].probability;
+        double cum = 0.0;
+        for (int i = 0; i < (int)discrete.size(); ++i) {
+            if (discrete[i].probability <= 0) continue;
+
+            torch::Tensor mask;
+            if (i == last_active && all_discrete) {
+                mask = (selector >= cum);
+            } else {
+                mask = (selector >= cum) & (selector < cum + discrete[i].probability);
+            }
+
+            safe_masked_fill(result, mask, discrete[i].value, dtype);
+            cum += discrete[i].probability;
+        }
     }
 
     return result;

@@ -1156,6 +1156,325 @@ TEST(DiscreteEntryConversion, GenerateTensorEquivalence) {
 }
 
 // ============================================================
+// Count mode tests
+// ============================================================
+
+// Helper: make a CPU generator with a given seed
+static torch::Generator make_gen(uint64_t seed) {
+    auto gen = at::detail::createCPUGenerator();
+    gen.set_current_seed(seed);
+    return gen;
+}
+
+// --- Auto-detection ---
+
+TEST(CountMode, AutoDetectSingleEntry) {
+    // {NaN, 5} → sum=5 > 1, all int ≥ 1 → count mode
+    auto t = generate_tensor({100}, torch::kFloat32, {{SpecialValue::NaN, 5.0}},
+                             BaseDist::uniform(0.0, 1.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 5);
+}
+
+TEST(CountMode, AutoDetectMultiEntry) {
+    // {NaN, 3}, {Inf, 2} → sum=5 > 1 → count mode
+    auto t = generate_tensor({100}, torch::kFloat32,
+        {{SpecialValue::NaN, 3.0}, {SpecialValue::Inf, 2.0}},
+        BaseDist::uniform(0.0, 1.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 3);
+    auto inf_count = (t == std::numeric_limits<float>::infinity()).sum().item<int64_t>();
+    EXPECT_EQ(inf_count, 2);
+}
+
+TEST(CountMode, AutoDetectTwoOnes) {
+    // {Zero, 1}, {One, 1} → sum=2 > 1 → count mode
+    auto t = generate_tensor({100}, torch::kFloat32,
+        {{SpecialValue::Zero, 1.0}, {SpecialValue::One, 1.0}},
+        BaseDist::uniform(5.0, 10.0), 42);
+    EXPECT_EQ((t == 0.0f).sum().item<int64_t>(), 1);
+    EXPECT_EQ((t == 1.0f).sum().item<int64_t>(), 1);
+}
+
+TEST(CountMode, NoAutoDetectSingleOne) {
+    // {NaN, 1.0} → sum=1 ≤ 1 → probability mode (100% NaN)
+    auto t = generate_tensor({100}, torch::kFloat32, {{SpecialValue::NaN, 1.0}});
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 100);
+}
+
+TEST(CountMode, NoAutoDetectFractional) {
+    // {NaN, 0.5} → not integer ≥ 1 → probability mode
+    auto t = generate_tensor({10000}, torch::kFloat32,
+        {{SpecialValue::NaN, 0.5}}, BaseDist::uniform(0.0, 1.0), 42);
+    auto nan_count = torch::isnan(t).sum().item<int64_t>();
+    EXPECT_GT(nan_count, 4500);
+    EXPECT_LT(nan_count, 5500);
+}
+
+TEST(CountMode, NoAutoDetectMixed) {
+    // {NaN, 1}, {Inf, 0.5} → not all integers → probability mode
+    // sum = 1.5 > 1, but 0.5 is not integer → stays prob mode → throws
+    EXPECT_THROW(
+        generate_tensor({100}, torch::kFloat32,
+            {{SpecialValue::NaN, 1.0}, {SpecialValue::Inf, 0.5}}),
+        std::invalid_argument);
+}
+
+// --- Explicit with_counts() ---
+
+TEST(CountMode, ExplicitSingleCount) {
+    // Edge case: with_counts({{NaN, 1}}) → exactly 1 NaN
+    auto spec = TensorSpec::with_counts({{SpecialValue::NaN, 1.0}});
+    auto t = generate_tensor({100}, torch::kFloat32, spec,
+                             BaseDist::uniform(0.0, 1.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 1);
+}
+
+TEST(CountMode, ExplicitZeroCount) {
+    // with_counts({{NaN, 0}}) → 0 NaN, no-op
+    auto spec = TensorSpec::with_counts({{SpecialValue::NaN, 0.0}});
+    auto t = generate_tensor({100}, torch::kFloat32, spec,
+                             BaseDist::uniform(1.0, 2.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 0);
+}
+
+// --- All-count (total_count == numel) ---
+
+TEST(CountMode, AllCountSingleValue) {
+    auto t = generate_tensor({10}, torch::kFloat32, {{SpecialValue::NaN, 10.0}});
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 10);
+}
+
+TEST(CountMode, AllCountMultiValue) {
+    auto t = generate_tensor({10}, torch::kFloat32,
+        {{SpecialValue::Zero, 4.0}, {SpecialValue::One, 3.0},
+         {SpecialValue::NaN, 3.0}});
+    EXPECT_EQ((t == 0.0f).sum().item<int64_t>(), 4);
+    EXPECT_EQ((t == 1.0f).sum().item<int64_t>(), 3);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 3);
+}
+
+// --- Shapes: 1D through 5D ---
+
+TEST(CountMode, Shape1D) {
+    auto t = generate_tensor({50}, torch::kFloat32,
+        {{SpecialValue::NaN, 5.0}, {SpecialValue::Inf, 3.0}},
+        BaseDist::uniform(0.0, 1.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 5);
+    EXPECT_EQ((t == std::numeric_limits<float>::infinity()).sum().item<int64_t>(), 3);
+}
+
+TEST(CountMode, Shape2D) {
+    auto t = generate_tensor({10, 20}, torch::kFloat32,
+        {{SpecialValue::NaN, 15.0}, {SpecialValue::Zero, 10.0}},
+        BaseDist::uniform(1.0, 2.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 15);
+    EXPECT_EQ((t == 0.0f).sum().item<int64_t>(), 10);
+    EXPECT_EQ(t.sizes(), (std::vector<int64_t>{10, 20}));
+}
+
+TEST(CountMode, Shape3D) {
+    auto t = generate_tensor({4, 5, 6}, torch::kFloat64,
+        {{SpecialValue::NaN, 10.0}, {SpecialValue::Inf, 5.0}},
+        BaseDist::normal(0.0, 1.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 10);
+    auto inf_count = (t == std::numeric_limits<double>::infinity()).sum().item<int64_t>();
+    EXPECT_EQ(inf_count, 5);
+    EXPECT_EQ(t.sizes(), (std::vector<int64_t>{4, 5, 6}));
+}
+
+TEST(CountMode, Shape4D) {
+    auto t = generate_tensor({2, 3, 4, 5}, torch::kFloat32,
+        {{SpecialValue::NaN, 20.0}, {SpecialValue::NInf, 10.0}},
+        BaseDist::uniform(-1.0, 1.0), 42);
+    int64_t numel = 2 * 3 * 4 * 5;
+    EXPECT_EQ(t.numel(), numel);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 20);
+    EXPECT_EQ((t == -std::numeric_limits<float>::infinity()).sum().item<int64_t>(), 10);
+}
+
+TEST(CountMode, Shape5D) {
+    auto t = generate_tensor({2, 2, 3, 2, 5}, torch::kFloat32,
+        {{SpecialValue::Zero, 10.0}, {SpecialValue::DTypeMax, 5.0}},
+        BaseDist::uniform(1.0, 2.0), 42);
+    int64_t numel = 2 * 2 * 3 * 2 * 5;
+    EXPECT_EQ(t.numel(), numel);
+    EXPECT_EQ((t == 0.0f).sum().item<int64_t>(), 10);
+    EXPECT_EQ((t == FLT_MAX).sum().item<int64_t>(), 5);
+}
+
+// --- Integer and other dtypes ---
+
+TEST(CountMode, Int32Dtype) {
+    auto t = generate_tensor({100}, torch::kInt32,
+        {{SpecialValue::Zero, 10.0}, {SpecialValue::DTypeMax, 5.0}},
+        BaseDist::randint(1, 100), 42);
+    EXPECT_EQ((t == 0).sum().item<int64_t>(), 10);
+    EXPECT_EQ((t == std::numeric_limits<int32_t>::max()).sum().item<int64_t>(), 5);
+}
+
+TEST(CountMode, Int64Dtype) {
+    auto t = generate_tensor({200}, torch::kInt64,
+        {{SpecialValue::DTypeMin, 8.0}, {SpecialValue::DTypeMax, 7.0}},
+        BaseDist::randint(0, 1000), 42);
+    EXPECT_EQ((t == std::numeric_limits<int64_t>::lowest()).sum().item<int64_t>(), 8);
+    EXPECT_EQ((t == std::numeric_limits<int64_t>::max()).sum().item<int64_t>(), 7);
+}
+
+TEST(CountMode, UInt8Dtype) {
+    auto t = generate_tensor({50}, torch::kUInt8,
+        {{SpecialValue::DTypeMax, 3.0}, {SpecialValue::Zero, 2.0}},
+        BaseDist::randint(1, 100), 42);
+    auto t64 = t.to(torch::kInt64);
+    EXPECT_EQ((t64 == 255).sum().item<int64_t>(), 3);
+    EXPECT_EQ((t64 == 0).sum().item<int64_t>(), 2);
+}
+
+TEST(CountMode, BoolDtype) {
+    auto t = generate_tensor({100}, torch::kBool,
+        {{SpecialValue::One, 10.0}, {SpecialValue::Zero, 10.0}});
+    // total_count=20, numel=100, all_discrete=false
+    // But base_dist is Uniform(-1,1) and bool → each element casts to bool
+    // Just check the counts are exact for discrete entries
+    // Actually bool + count mode: base doesn't throw, let's test with all_discrete
+    auto t_all = generate_tensor({20}, torch::kBool,
+        {{SpecialValue::One, 10.0}, {SpecialValue::Zero, 10.0}});
+    EXPECT_EQ(t_all.sum().item<int64_t>(), 10);
+}
+
+// --- Literal values in count mode ---
+
+TEST(CountMode, LiteralIntValue) {
+    auto t = generate_tensor({100}, torch::kInt32,
+        {{42, 7.0}, {SpecialValue::Zero, 3.0}},
+        BaseDist::randint(1, 10), 42);
+    EXPECT_EQ((t == 42).sum().item<int64_t>(), 7);
+    EXPECT_EQ((t == 0).sum().item<int64_t>(), 3);
+}
+
+TEST(CountMode, LiteralDoubleValue) {
+    auto t = generate_tensor({100}, torch::kFloat64,
+        {{3.14, 5.0}, {SpecialValue::NaN, 3.0}},
+        BaseDist::uniform(0.0, 1.0), 42);
+    EXPECT_EQ((t == 3.14).sum().item<int64_t>(), 5);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 3);
+}
+
+// --- Base distribution interaction ---
+
+TEST(CountMode, RemainingFilledByBaseDist) {
+    auto t = generate_tensor({1000}, torch::kFloat32,
+        {{SpecialValue::NaN, 10.0}},
+        BaseDist::uniform(100.0, 200.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 10);
+    auto non_nan = t.masked_select(~torch::isnan(t));
+    EXPECT_EQ(non_nan.numel(), 990);
+    EXPECT_GE(non_nan.min().item<float>(), 100.0f);
+    EXPECT_LE(non_nan.max().item<float>(), 200.0f);
+}
+
+// --- Reproducibility ---
+
+TEST(CountMode, Reproducible) {
+    auto gen1 = BaseDist::uniform(0.0, 1.0).with_seed(777);
+    auto gen2 = BaseDist::uniform(0.0, 1.0).with_seed(777);
+    auto t1 = generate_tensor({100}, torch::kFloat32,
+        {{SpecialValue::NaN, 5.0}, {SpecialValue::Inf, 3.0}}, gen1);
+    auto t2 = generate_tensor({100}, torch::kFloat32,
+        {{SpecialValue::NaN, 5.0}, {SpecialValue::Inf, 3.0}}, gen2);
+
+    auto nan1 = torch::isnan(t1);
+    auto nan2 = torch::isnan(t2);
+    EXPECT_TRUE(nan1.equal(nan2));
+    EXPECT_TRUE(t1.nan_to_num(0).equal(t2.nan_to_num(0)));
+}
+
+// --- Fallback in count mode ---
+
+TEST(CountMode, InfFallbackOnIntDtype) {
+    // Inf → DTypeMax on int32, count mode
+    auto t = generate_tensor({50}, torch::kInt32,
+        {{SpecialValue::Inf, 5.0}, {SpecialValue::NInf, 3.0}},
+        BaseDist::randint(0, 100), 42);
+    EXPECT_EQ((t == std::numeric_limits<int32_t>::max()).sum().item<int64_t>(), 5);
+    EXPECT_EQ((t == std::numeric_limits<int32_t>::lowest()).sum().item<int64_t>(), 3);
+}
+
+TEST(CountMode, NaNSkippedOnIntDtype) {
+    // NaN on int is silently skipped; count not applied
+    auto t = generate_tensor({50}, torch::kInt32,
+        {{SpecialValue::NaN, 5.0}, {SpecialValue::Zero, 3.0}},
+        BaseDist::randint(10, 20), 42);
+    // NaN was skipped, so only Zero count=3 applies
+    // sum after resolution = 3, which is still > 1 since with_counts
+    // Actually auto-detect: original entries have 5+3=8 ints, but after
+    // NaN skip, resolved discrete has only {Zero, 3.0}. p_sum=3 > 1 → count mode
+    EXPECT_EQ((t == 0).sum().item<int64_t>(), 3);
+}
+
+// --- Error cases ---
+
+TEST(CountMode, ErrorCountExceedsNumel) {
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kFloat32,
+            {{SpecialValue::NaN, 8.0}, {SpecialValue::Inf, 5.0}}),
+        std::invalid_argument);
+}
+
+TEST(CountMode, ErrorExplicitCountExceedsNumel) {
+    auto spec = TensorSpec::with_counts({{SpecialValue::NaN, 20.0}});
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kFloat32, spec),
+        std::invalid_argument);
+}
+
+TEST(CountMode, ErrorNonIntegerInExplicitCountMode) {
+    auto spec = TensorSpec::with_counts({{SpecialValue::NaN, 3.5}});
+    EXPECT_THROW(
+        generate_tensor({100}, torch::kFloat32, spec),
+        std::invalid_argument);
+}
+
+TEST(CountMode, ErrorNegativeCountInExplicitMode) {
+    auto spec = TensorSpec::with_counts({{SpecialValue::NaN, -1.0}});
+    EXPECT_THROW(
+        generate_tensor({100}, torch::kFloat32, spec),
+        std::invalid_argument);
+}
+
+// --- Stress: large tensor ---
+
+TEST(CountMode, LargeTensor) {
+    auto t = generate_tensor({1000000}, torch::kFloat32,
+        {{SpecialValue::NaN, 1000.0}, {SpecialValue::Inf, 500.0},
+         {SpecialValue::Zero, 200.0}},
+        BaseDist::uniform(-1.0, 1.0), 42);
+    EXPECT_EQ(torch::isnan(t).sum().item<int64_t>(), 1000);
+    EXPECT_EQ((t == std::numeric_limits<float>::infinity()).sum().item<int64_t>(), 500);
+    EXPECT_EQ((t == 0.0f).sum().item<int64_t>(), 200);
+}
+
+// --- No overlap between discrete positions ---
+
+TEST(CountMode, NoOverlapBetweenValues) {
+    for (int trial = 0; trial < 20; ++trial) {
+        auto t = generate_tensor({100}, torch::kFloat32,
+            {{SpecialValue::NaN, 30.0}, {SpecialValue::Inf, 30.0},
+             {SpecialValue::Zero, 30.0}},
+            BaseDist::uniform(1.0, 2.0), 42 + trial);
+        auto nan_count = torch::isnan(t).sum().item<int64_t>();
+        auto inf_count = (t == std::numeric_limits<float>::infinity()).sum().item<int64_t>();
+        auto zero_count = (t == 0.0f).sum().item<int64_t>();
+        EXPECT_EQ(nan_count, 30) << "trial=" << trial;
+        EXPECT_EQ(inf_count, 30) << "trial=" << trial;
+        EXPECT_EQ(zero_count, 30) << "trial=" << trial;
+        // remaining 10 should be from base dist [1, 2)
+        auto remaining = t.masked_select(~torch::isnan(t) &
+                                         (t != std::numeric_limits<float>::infinity()) &
+                                         (t != 0.0f));
+        EXPECT_EQ(remaining.numel(), 10) << "trial=" << trial;
+    }
+}
+
+// ============================================================
 // main
 // ============================================================
 int main(int argc, char** argv) {

@@ -72,7 +72,15 @@ DiscreteEntry(3.14, 0.1)               // double → raw 值 3.14
 
 其余数值存为 raw 值，生成时直接 cast 到目标 dtype（浮点 → 整数时截断小数部分）。
 
-**dtype 校验：** `SpecialValue` 条目受 `is_valid_for_dtype()` 约束（如整数类型不接受 NaN）。Raw 值始终通过校验，由 dtype cast 处理类型转换。整数 dtype 使用 raw 值时，超出 int64 范围的值会在生成时抛出异常。
+**dtype 校验：** `SpecialValue` 条目受 `is_valid_for_dtype()` 约束。对于不兼容的 dtype，`generate_tensor` 会自动应用以下降级规则：
+
+| SpecialValue | 不兼容 dtype | 降级行为 |
+|---|---|---|
+| `Inf` | 整数、bool、无穷大不可表示的浮点（e4m3fn、e4m3fnuz、e8m0fnu） | 降级为 `DTypeMax` |
+| `NInf` | 整数、bool、无穷大不可表示的浮点（e4m3fn、e4m3fnuz、e8m0fnu） | 降级为 `DTypeMin` |
+| `NaN` | 整数、bool | 静默忽略（跳过该条目，概率归还给基础分布） |
+
+其他不兼容的 SpecialValue（如整数 dtype 上使用 `Epsilon`、`Tiny`）仍会抛出异常。Raw 值始终通过校验，由 dtype cast 处理类型转换。整数 dtype 使用 raw 值时，超出 int64 范围的值会在生成时抛出异常。
 
 ### BaseDist 类型
 
@@ -142,7 +150,7 @@ for each entry (value, p) in spec.discrete:
 | Epsilon | — | — | — | — | — | — | — | — | 9.77e-4 | 7.81e-3 | FLT_EPSILON | DBL_EPSILON | — | 0.125 | 0.25 | 1.0 |
 | Tiny | — | — | — | — | — | — | — | — | 6.10e-5 | FLT_MIN | FLT_MIN | DBL_MIN | — | 0.015625 | 6.10e-5 | 2^-127 |
 
-"—"表示该值对该 dtype 无效（`is_valid_for_dtype()` 返回 `false`）。
+"—"表示该值对该 dtype 无效（`is_valid_for_dtype()` 返回 `false`）。其中 `Inf`/`NInf` 在不兼容 dtype 上自动降级为 `DTypeMax`/`DTypeMin`，`NaN` 在非浮点 dtype 上自动忽略（参见"降级规则"）。
 
 ---
 
@@ -162,11 +170,11 @@ PyTorch 的 `masked_fill_` 在目标 dtype 为 FP8 时不接受标量。解决�
 
 ### float8_e4m3fn 无无穷大
 
-`e4m3fn` 编码将本应表示无穷大的位模式保留给了额外的 NaN 值。因此 `Infinity` 和 `NegativeInfinity` 被 `is_valid_for_dtype()` 对该 dtype 显式拒绝。
+`e4m3fn` 编码将本应表示无穷大的位模式保留给了额外的 NaN 值。因此 `Infinity` 和 `NegativeInfinity` 被 `is_valid_for_dtype()` 对该 dtype 标记为无效。当用户在生成时指定 `Inf`/`NInf`，会自动降级为该 dtype 的 `DTypeMax` (448.0) / `DTypeMin` (-448.0)。
 
 ### 布尔类型
 
-`bool` 被视为 1 位无符号整数。`DTypeMin` = `false` (0)，`DTypeMax` = `true` (1)。`NegativeOne` 映射为 `true`（通过二补数规则与 `One` 相同）。所有浮点专用值（NaN、Inf、Epsilon、Tiny）均无效。
+`bool` 被视为 1 位无符号整数。`DTypeMin` = `false` (0)，`DTypeMax` = `true` (1)。`NegativeOne` 映射为 `true`（通过二补数规则与 `One` 相同）。所有浮点专用值（Epsilon、Tiny）均无效。`Inf` 降级为 `DTypeMax` (true)，`NInf` 降级为 `DTypeMin` (false)，`NaN` 静默忽略。
 
 ### float8_e8m0fnu (E8M0)
 
@@ -210,7 +218,8 @@ OCP MX 微缩放格式的指数-only 编码：8 位指数、0 位尾数、无符
 | 分组 | 测试内容 |
 |------|----------|
 | `Validation` | `is_valid_for_dtype()` 对浮点专用和 e4m3fn 特有规则的验证 |
-| `ErrorHandling` | 对整数使用 NaN、对 e4m3fn 使用 inf、负概率、概率总和过大时抛出 `std::invalid_argument` |
+| `ErrorHandling` | 负概率、概率总和过大时抛出 `std::invalid_argument`；整数 dtype 使用 Epsilon 时抛异常 |
+| `Fallback` | Inf/NInf 在不兼容 dtype 上降级为 DTypeMax/DTypeMin；NaN 在非浮点 dtype 上静默忽略 |
 | `EdgeCase` | 空张量、单元素、零概率条目、极小概率（p=0.001 在 N=1M 时） |
 | `UInt{8,16,32,64}Specific` | 精确的二补数值、无泄漏检查 |
 | `FloatSpecials` | 每种浮点 dtype 的精确 epsilon 和 tiny 值 |

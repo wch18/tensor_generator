@@ -130,17 +130,41 @@ auto t = tensor_with_inf_nan({10000}, torch::kFloat32,
     /*inf_ratio=*/0.05, /*nan_ratio=*/0.1);
 ```
 
-### 注意：Inf 不适用于所有 dtype
+### 注意：Inf/NInf/NaN 在不兼容 dtype 上的自动降级
 
-- **整数类型**（int8/16/32/64, uint8/16/32/64）：没有无穷大的概念，传入会报错
-- **float8_e4m3fn**：该编码格式没有 inf 位模式，传入会报错
-- **float8_e8m0fnu (E8M0)**：无符号指数格式，无穷大无效
+当你在不支持的 dtype（整数、bool、或无法表示无穷大的浮点如 e4m3fn）上使用 Inf、NInf 或 NaN 时，`generate_tensor` **不会报错**，而是自动降级：
+
+| SpecialValue | 不兼容 dtype 上的行为 |
+|---|---|
+| `Inf` | 降级为 `DTypeMax`（该 dtype 的最大值） |
+| `NInf` | 降级为 `DTypeMin`（该 dtype 的最小值） |
+| `NaN` | 静默忽略（跳过该条目，概率归还给基础分布） |
 
 ```cpp
-// 这行会抛出 std::invalid_argument
+// Inf 在 int32 上 → 填充为 INT32_MAX (2147483647)
 auto t = generate_tensor({100}, torch::kInt32,
-    TensorSpec{{SpecialValue::Inf, 0.1}});
+    TensorSpec{{SpecialValue::Inf, 1.0}});
+// 全部元素 = 2147483647
+
+// NInf 在 uint8 上 → 填充为 0 (DTypeMin)
+auto t = generate_tensor({100}, torch::kUInt8,
+    TensorSpec{{SpecialValue::NInf, 1.0}});
+// 全部元素 = 0
+
+// NaN 在 int32 上 → 静默跳过，由基础分布填充
+auto t = generate_tensor({100}, torch::kInt32,
+    TensorSpec{{SpecialValue::NaN, 0.5}},
+    BaseDist::randint(0, 100));
+// 100% 的元素来自 randint（NaN 条目被忽略）
+
+// Inf 在 float8_e4m3fn 上 → 降级为 448.0 (DTypeMax)
+auto t = generate_tensor({100}, torch::kFloat8_e4m3fn,
+    TensorSpec{{SpecialValue::Inf, 1.0}});
 ```
+
+这使得同一套 TensorSpec 可以跨 dtype 复用，无需为每种类型手动排除不兼容的特殊值。
+
+> **仍会报错的情况**：`Epsilon` 和 `Tiny` 在整数/bool dtype 上没有降级逻辑，仍会抛出 `std::invalid_argument`。
 
 ---
 
@@ -499,7 +523,7 @@ void test_safe_sum() {
 
 | 错误信息 | 原因 | 解决方法 |
 |----------|------|----------|
-| `discrete value not valid for given dtype` | 特殊值与 dtype 不兼容 | 检查 SpecialValue 和 dtype 的组合，例如整数不支持 NaN |
+| `discrete value not valid for given dtype` | 特殊值与 dtype 不兼容（且无降级规则） | 检查 SpecialValue 和 dtype 的组合，例如整数不支持 Epsilon/Tiny。Inf/NInf/NaN 会自动降级，不会触发此错误 |
 | `probability must be non-negative` | 概率为负数 | 检查 TensorSpec 中的概率值 |
 | `discrete probabilities exceed 1.0` | 概率之和超过 1 | 减小各项概率，使总和 <= 1.0 |
 | `RandInt base distribution is incompatible with float dtype` | 用 RandInt 配浮点类型 | 改用 Uniform 或 Normal |

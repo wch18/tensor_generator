@@ -277,16 +277,6 @@ TEST(Validation, E8M0Constraints) {
 }
 
 // --- Error handling tests ---
-TEST(ErrorHandling, NaNOnInteger) {
-    EXPECT_THROW(generate_tensor({10}, torch::kInt32, {{SpecialValue::NaN, 0.5}}),
-                 std::invalid_argument);
-}
-
-TEST(ErrorHandling, InfOnE4M3) {
-    EXPECT_THROW(generate_tensor({10}, torch::kFloat8_e4m3fn, {{SpecialValue::Inf, 0.1}}),
-                 std::invalid_argument);
-}
-
 TEST(ErrorHandling, NegativeProbability) {
     EXPECT_THROW(generate_tensor({10}, torch::kFloat32, {{SpecialValue::Zero, -0.1}}),
                  std::invalid_argument);
@@ -298,14 +288,111 @@ TEST(ErrorHandling, ProbExceedsOne) {
                  std::invalid_argument);
 }
 
-TEST(ErrorHandling, InfOnBool) {
-    EXPECT_THROW(generate_tensor({10}, torch::kBool, {{SpecialValue::Inf, 0.1}}),
-                 std::invalid_argument);
-}
-
 TEST(ErrorHandling, EpsilonOnInt) {
     EXPECT_THROW(generate_tensor({10}, torch::kInt64, {{SpecialValue::Epsilon, 0.1}}),
                  std::invalid_argument);
+}
+
+// --- Fallback tests: Inf/NInf → DTypeMax/DTypeMin, NaN → skip ---
+TEST(Fallback, InfOnIntegerFallsToDTypeMax) {
+    auto t = generate_tensor({1000}, torch::kInt32,
+        {{SpecialValue::Inf, 1.0}});
+    EXPECT_TRUE((t == std::numeric_limits<int32_t>::max()).all().item<bool>());
+}
+
+TEST(Fallback, NInfOnIntegerFallsToDTypeMin) {
+    auto t = generate_tensor({1000}, torch::kInt64,
+        {{SpecialValue::NInf, 1.0}});
+    EXPECT_TRUE((t == std::numeric_limits<int64_t>::lowest()).all().item<bool>());
+}
+
+TEST(Fallback, InfOnUInt8FallsTo255) {
+    auto t = generate_tensor({100}, torch::kUInt8,
+        {{SpecialValue::Inf, 1.0}});
+    EXPECT_TRUE((t.to(torch::kInt64) == 255).all().item<bool>());
+}
+
+TEST(Fallback, NInfOnUInt8FallsTo0) {
+    auto t = generate_tensor({100}, torch::kUInt8,
+        {{SpecialValue::NInf, 1.0}});
+    EXPECT_TRUE((t.to(torch::kInt64) == 0).all().item<bool>());
+}
+
+TEST(Fallback, InfOnBoolFallsToTrue) {
+    auto t = generate_tensor({100}, torch::kBool,
+        {{SpecialValue::Inf, 1.0}});
+    EXPECT_TRUE(t.all().item<bool>());
+}
+
+TEST(Fallback, NInfOnBoolFallsToFalse) {
+    auto t = generate_tensor({100}, torch::kBool,
+        {{SpecialValue::NInf, 1.0}});
+    EXPECT_FALSE(t.any().item<bool>());
+}
+
+TEST(Fallback, InfOnE4M3FallsToDTypeMax) {
+    auto t = generate_tensor({100}, torch::kFloat8_e4m3fn,
+        {{SpecialValue::Inf, 1.0}});
+    float val = t.to(torch::kFloat32).max().item<float>();
+    EXPECT_FLOAT_EQ(val, 448.0f);
+}
+
+TEST(Fallback, NInfOnE4M3FallsToDTypeMin) {
+    auto t = generate_tensor({100}, torch::kFloat8_e4m3fn,
+        {{SpecialValue::NInf, 1.0}});
+    float val = t.to(torch::kFloat32).min().item<float>();
+    EXPECT_FLOAT_EQ(val, -448.0f);
+}
+
+TEST(Fallback, NaNOnIntegerSilentlySkipped) {
+    auto t = generate_tensor({1000}, torch::kInt32,
+        {{SpecialValue::NaN, 0.5}},
+        BaseDist::randint(10, 20), 42);
+    auto t64 = t.to(torch::kFloat64);
+    EXPECT_GE(t64.min().item<double>(), 10.0);
+    EXPECT_LE(t64.max().item<double>(), 19.0);
+}
+
+TEST(Fallback, NaNOnBoolSilentlySkipped) {
+    auto t = generate_tensor({1000}, torch::kBool,
+        {{SpecialValue::NaN, 0.3}, {SpecialValue::One, 0.7}});
+    EXPECT_TRUE(t.all().item<bool>());
+}
+
+TEST(Fallback, NaNSkippedLeavesBaseDist) {
+    auto t = generate_tensor({10000}, torch::kInt64,
+        {{SpecialValue::NaN, 1.0}},
+        BaseDist::randint(0, 100), 55);
+    auto t64 = t.to(torch::kFloat64);
+    EXPECT_GE(t64.min().item<double>(), 0.0);
+    EXPECT_LE(t64.max().item<double>(), 99.0);
+}
+
+TEST(Fallback, MixedFallbackAndNative) {
+    auto t = generate_tensor({100000}, torch::kInt32,
+        {{SpecialValue::Inf, 0.2},
+         {SpecialValue::NInf, 0.2},
+         {SpecialValue::NaN, 0.1},
+         {SpecialValue::Zero, 0.5}},
+        BaseDist::randint(50, 100), 42);
+    auto max_count = (t == std::numeric_limits<int32_t>::max()).sum().item<int64_t>();
+    auto min_count = (t == std::numeric_limits<int32_t>::lowest()).sum().item<int64_t>();
+    auto zero_count = (t == 0).sum().item<int64_t>();
+    assert_probability(max_count, 100000, 0.2);
+    assert_probability(min_count, 100000, 0.2);
+    assert_probability(zero_count, 100000, 0.5);
+    // NaN was skipped, remaining 10% filled by base dist (randint 50..99)
+    auto base_count = 100000 - max_count - min_count - zero_count;
+    assert_probability(base_count, 100000, 0.1);
+}
+
+TEST(Fallback, InfNInfOnFloatWithInfinityUnchanged) {
+    auto t = generate_tensor({10000}, torch::kFloat32,
+        {{SpecialValue::Inf, 0.5}, {SpecialValue::NInf, 0.5}});
+    auto pinf_count = (t == std::numeric_limits<float>::infinity()).sum().item<int64_t>();
+    auto ninf_count = (t == -std::numeric_limits<float>::infinity()).sum().item<int64_t>();
+    EXPECT_EQ(pinf_count + ninf_count, 10000);
+    assert_probability(pinf_count, 10000, 0.5);
 }
 
 TEST(ErrorHandling, RandIntOnFloat) {
@@ -963,37 +1050,38 @@ TEST(DiscreteEntryConversion, ImplicitNOneOnE8M0Throws) {
         std::invalid_argument);
 }
 
-TEST(DiscreteEntryConversion, ImplicitNaNOnIntegerThrows) {
+TEST(DiscreteEntryConversion, ImplicitNaNOnIntegerSkipped) {
     double nan = std::numeric_limits<double>::quiet_NaN();
-    EXPECT_THROW(
-        generate_tensor({10}, torch::kInt32, TensorSpec{{nan, 0.5}}),
-        std::invalid_argument);
-    EXPECT_THROW(
-        generate_tensor({10}, torch::kInt64, TensorSpec{{nan, 0.1}}),
-        std::invalid_argument);
+    // NaN on integer is silently skipped, not rejected
+    auto t1 = generate_tensor({100}, torch::kInt32, TensorSpec{{nan, 0.5}},
+                              BaseDist::randint(0, 10), 42);
+    EXPECT_EQ(t1.numel(), 100);
+    auto t2 = generate_tensor({100}, torch::kInt64, TensorSpec{{nan, 0.1}},
+                              BaseDist::randint(0, 10), 43);
+    EXPECT_EQ(t2.numel(), 100);
 }
 
-TEST(DiscreteEntryConversion, ImplicitInfOnNoInfDtypeThrows) {
+TEST(DiscreteEntryConversion, ImplicitInfOnNoInfDtypeFallback) {
     double inf = std::numeric_limits<double>::infinity();
-    EXPECT_THROW(
-        generate_tensor({10}, torch::kFloat8_e4m3fn, TensorSpec{{inf, 0.1}}),
-        std::invalid_argument);
-    EXPECT_THROW(
-        generate_tensor({10}, torch::kInt32, TensorSpec{{inf, 0.1}}),
-        std::invalid_argument);
-    EXPECT_THROW(
-        generate_tensor({10}, torch::kBool, TensorSpec{{inf, 0.1}}),
-        std::invalid_argument);
+    // Inf on e4m3fn → DTypeMax (448)
+    auto t1 = generate_tensor({100}, torch::kFloat8_e4m3fn, TensorSpec{{inf, 1.0}});
+    EXPECT_FLOAT_EQ(t1.to(torch::kFloat32).max().item<float>(), 448.0f);
+    // Inf on int32 → DTypeMax
+    auto t2 = generate_tensor({100}, torch::kInt32, TensorSpec{{inf, 1.0}});
+    EXPECT_TRUE((t2 == std::numeric_limits<int32_t>::max()).all().item<bool>());
+    // Inf on bool → true
+    auto t3 = generate_tensor({100}, torch::kBool, TensorSpec{{inf, 1.0}});
+    EXPECT_TRUE(t3.all().item<bool>());
 }
 
-TEST(DiscreteEntryConversion, ImplicitNInfOnNoInfDtypeThrows) {
+TEST(DiscreteEntryConversion, ImplicitNInfOnNoInfDtypeFallback) {
     double ninf = -std::numeric_limits<double>::infinity();
-    EXPECT_THROW(
-        generate_tensor({10}, torch::kFloat8_e4m3fn, TensorSpec{{ninf, 0.1}}),
-        std::invalid_argument);
-    EXPECT_THROW(
-        generate_tensor({10}, torch::kUInt8, TensorSpec{{ninf, 0.1}}),
-        std::invalid_argument);
+    // NInf on e4m3fn → DTypeMin (-448)
+    auto t1 = generate_tensor({100}, torch::kFloat8_e4m3fn, TensorSpec{{ninf, 1.0}});
+    EXPECT_FLOAT_EQ(t1.to(torch::kFloat32).min().item<float>(), -448.0f);
+    // NInf on uint8 → 0
+    auto t2 = generate_tensor({100}, torch::kUInt8, TensorSpec{{ninf, 1.0}});
+    EXPECT_TRUE((t2.to(torch::kInt64) == 0).all().item<bool>());
 }
 
 TEST(DiscreteEntryConversion, ImplicitValueNegativeProbThrows) {

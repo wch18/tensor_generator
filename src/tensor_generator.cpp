@@ -39,15 +39,34 @@ torch::Tensor generate_tensor(
         torch::manual_seed(seed.value());
     }
 
-    auto& discrete = spec.discrete;
-
+    // Resolve discrete entries with fallbacks for incompatible dtypes:
+    //   Inf  on non-float / no-infinity float → DTypeMax
+    //   NInf on non-float / no-infinity float → DTypeMin
+    //   NaN  on non-float                     → silently skipped
+    std::vector<DiscreteEntry> discrete;
     double p_sum = 0.0;
-    for (auto& e : discrete) {
+    for (auto& e : spec.discrete) {
         if (e.probability < 0)
             throw std::invalid_argument("probability must be non-negative");
-        if (!e.value.is_valid_for_dtype(dtype))
-            throw std::invalid_argument("discrete value not valid for given dtype");
-        p_sum += e.probability;
+        if (e.value.is_valid_for_dtype(dtype)) {
+            discrete.push_back(e);
+        } else if (e.value.is_special()) {
+            auto sv = e.value.as_special_value();
+            if (sv == SpecialValue::Inf || sv == SpecialValue::NInf) {
+                SpecialValue fallback = (sv == SpecialValue::Inf)
+                    ? SpecialValue::DTypeMax : SpecialValue::DTypeMin;
+                discrete.push_back({fallback, e.probability});
+            } else if (sv == SpecialValue::NaN) {
+                continue;
+            } else {
+                throw std::invalid_argument(
+                    "discrete value not valid for given dtype");
+            }
+        } else {
+            throw std::invalid_argument(
+                "discrete value not valid for given dtype");
+        }
+        p_sum += discrete.back().probability;
     }
     if (p_sum > 1.0 + 1e-9)
         throw std::invalid_argument("discrete probabilities exceed 1.0");

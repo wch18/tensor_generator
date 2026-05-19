@@ -15,7 +15,7 @@
 - **策略生成器**：为系统化覆盖生成测试用例配置（随机、网格、两两组合）
 - **torch::Generator 支持**：BaseDist 接受 Generator 以实现隔离的随机数状态；支持从 Generator 隐式转换
 - **可复现**：可选的 seed 参数或每分布独立 Generator
-- **dtype 感知校验**：运行时拒绝无效组合（如整数类型使用 NaN、浮点类型使用 RandInt）
+- **dtype 感知校验与降级**：运行时校验 SpecialValue 与 dtype 的兼容性；Inf/NInf 在不兼容 dtype 上自动降级为 DTypeMax/DTypeMin，NaN 在非浮点类型上静默忽略
 
 ## 依赖要求
 
@@ -210,9 +210,9 @@ dist.with_seed(seed)                    // 创建隔离 Generator 并绑定
 | `NOne` | -1（无符号类型为 0xFF...FF；E8M0 不可用） |
 | `DTypeMin` | 类型可表示的最小值 |
 | `DTypeMax` | 类型可表示的最大值 |
-| `NaN` | 静默 NaN（仅浮点类型） |
-| `Inf` | +无穷大（浮点类型，不含 e4m3fn/e8m0fnu） |
-| `NInf` | -无穷大（浮点类型，不含 e4m3fn/e8m0fnu） |
+| `NaN` | 静默 NaN（仅浮点类型；非浮点 dtype 上自动忽略） |
+| `Inf` | +无穷大（浮点类型，不含 e4m3fn/e4m3fnuz/e8m0fnu；不兼容 dtype 上降级为 DTypeMax） |
+| `NInf` | -无穷大（浮点类型，不含 e4m3fn/e4m3fnuz/e8m0fnu；不兼容 dtype 上降级为 DTypeMin） |
 | `Epsilon` | 机器精度（仅浮点类型） |
 | `Tiny` | 最小正规化数（仅浮点类型） |
 

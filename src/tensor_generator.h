@@ -19,9 +19,14 @@
 //               with_generator/with_seed), all RNG draws use that
 //               isolated generator and this seed has no effect.
 //
+// Fallback behavior for incompatible special values:
+//   - Inf  on non-float / no-infinity float → treated as DTypeMax
+//   - NInf on non-float / no-infinity float → treated as DTypeMin
+//   - NaN  on non-float                     → silently ignored
+//
 // Throws std::invalid_argument if:
 //   - any entry has a negative probability,
-//   - any discrete value is incompatible with dtype,
+//   - any discrete value is incompatible with dtype (after fallbacks),
 //   - discrete probabilities sum to more than 1.0 + 1e-9,
 //   - RandInt/Poisson base_dist used with a float or bool dtype.
 torch::Tensor generate_tensor(

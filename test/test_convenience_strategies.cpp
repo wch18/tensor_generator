@@ -85,9 +85,12 @@ TEST(TensorWithOneSV, ZeroRatio) {
     EXPECT_LT(count, 3300);
 }
 
-TEST(TensorWithOneSV, InvalidDtype) {
-    EXPECT_THROW(tensor_with_nan({10}, torch::kInt32, 0.1), std::invalid_argument);
-    EXPECT_THROW(tensor_with_inf({10}, torch::kInt64, 0.1), std::invalid_argument);
+TEST(TensorWithOneSV, FallbackAndInvalidDtype) {
+    // NaN on int32 → silently skipped, no throw
+    EXPECT_NO_THROW(tensor_with_nan({10}, torch::kInt32, 0.1));
+    // Inf on int64 → fallback to DTypeMax, no throw
+    EXPECT_NO_THROW(tensor_with_inf({10}, torch::kInt64, 0.1));
+    // Epsilon on uint8 → still invalid (no fallback defined)
     EXPECT_THROW(tensor_with_epsilon({10}, torch::kUInt8, 0.1), std::invalid_argument);
 }
 
@@ -163,10 +166,11 @@ TEST(TensorWithTwoSV, SumExceedsOne) {
         std::invalid_argument);
 }
 
-TEST(TensorWithTwoSV, InvalidSVForDtype) {
-    EXPECT_THROW(
-        tensor_with_inf_nan({10}, torch::kInt32, 0.1, 0.1),
-        std::invalid_argument);
+TEST(TensorWithTwoSV, FallbackSVForDtype) {
+    // Inf→DTypeMax, NaN→skipped on int32; no throw
+    auto t = tensor_with_inf_nan({1000}, torch::kInt32, 0.3, 0.2);
+    auto max_count = (t == std::numeric_limits<int32_t>::max()).sum().item<int64_t>();
+    EXPECT_GT(max_count, 200);
 }
 
 TEST(TensorWithTwoSV, BothZeroRatio) {

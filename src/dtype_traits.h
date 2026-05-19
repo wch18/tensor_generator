@@ -19,7 +19,8 @@ inline bool is_unsigned_int_dtype(torch::ScalarType dtype) {
 inline bool has_infinity(torch::ScalarType dtype) {
     return c10::isFloatingType(dtype) &&
            dtype != torch::kFloat8_e4m3fn &&
-           dtype != c10::ScalarType::Float8_e4m3fnuz;
+           dtype != c10::ScalarType::Float8_e4m3fnuz &&
+           dtype != c10::ScalarType::Float8_e8m0fnu;
 }
 
 // dtypes where masked_fill_ / torch::where are not supported natively

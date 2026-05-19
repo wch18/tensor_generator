@@ -33,11 +33,31 @@ static bool compat_all(torch::ScalarType) { return true; }
 
 static bool compat_float_only(torch::ScalarType dt) { return is_float_type(dt); }
 
+// Float but not E8M0 (which has extreme quantization causing continuous/discrete collisions)
+static bool compat_float_not_e8m0(torch::ScalarType dt) {
+    return is_float_type(dt) && dt != c10::ScalarType::Float8_e8m0fnu;
+}
+
 static bool compat_float_with_inf(torch::ScalarType dt) {
-    return is_float_type(dt) && dt != torch::kFloat8_e4m3fn;
+    return is_float_type(dt) && dt != torch::kFloat8_e4m3fn
+        && dt != c10::ScalarType::Float8_e4m3fnuz
+        && dt != c10::ScalarType::Float8_e8m0fnu;
 }
 
 static bool compat_non_bool(torch::ScalarType dt) { return dt != torch::kBool; }
+
+// Has zero and negative-one support (excludes E8M0 which is unsigned, no zero)
+static bool compat_has_zero(torch::ScalarType dt) {
+    return dt != c10::ScalarType::Float8_e8m0fnu;
+}
+
+static bool compat_has_zero_and_none(torch::ScalarType dt) {
+    return dt != c10::ScalarType::Float8_e8m0fnu;
+}
+
+static bool compat_non_bool_has_zero(torch::ScalarType dt) {
+    return dt != torch::kBool && dt != c10::ScalarType::Float8_e8m0fnu;
+}
 
 static bool compat_int_only(torch::ScalarType dt) { return is_int_type(dt); }
 
@@ -47,7 +67,7 @@ static std::vector<TestConfig> get_all_configs() {
         {"all_zeros",
          TensorSpec{{SpecialValue::Zero, 1.0}},
          {},
-         compat_all},
+         compat_has_zero},
 
         {"all_ones",
          TensorSpec{{SpecialValue::One, 1.0}},
@@ -57,27 +77,27 @@ static std::vector<TestConfig> get_all_configs() {
         {"half_zero_half_one",
          TensorSpec{{SpecialValue::Zero, 0.5}, {SpecialValue::One, 0.5}},
          {},
-         compat_all},
+         compat_has_zero},
 
         {"min_max_zero",
          TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::DTypeMin, 0.3}, {SpecialValue::DTypeMax, 0.4}},
          {},
-         compat_all},
+         compat_has_zero},
 
         {"neg1_min_max",
          TensorSpec{{SpecialValue::NOne, 0.4}, {SpecialValue::DTypeMin, 0.3}, {SpecialValue::DTypeMax, 0.3}},
          {},
-         compat_all},
+         compat_has_zero_and_none},
 
         {"discrete_plus_uniform",
          TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::DTypeMax, 0.1}},
          BaseDist::uniform(-10.0, 10.0),
-         compat_non_bool},
+         compat_non_bool_has_zero},
 
         {"discrete_plus_normal",
          TensorSpec{{SpecialValue::Zero, 0.2}, {SpecialValue::One, 0.1}},
          BaseDist::normal(0.0, 5.0),
-         compat_non_bool},
+         compat_non_bool_has_zero},
 
         {"float_specials",
          TensorSpec{{SpecialValue::NaN, 0.2}, {SpecialValue::Inf, 0.15},
@@ -90,18 +110,18 @@ static std::vector<TestConfig> get_all_configs() {
          TensorSpec{{SpecialValue::NaN, 0.2}, {SpecialValue::Epsilon, 0.2},
                     {SpecialValue::Tiny, 0.2}, {SpecialValue::DTypeMax, 0.2}},
          BaseDist::uniform(-1.0, 1.0),
-         compat_float_only},
+         compat_float_not_e8m0},
 
         {"rare_event",
          TensorSpec{{SpecialValue::DTypeMax, 0.01}, {SpecialValue::Zero, 0.01}},
          BaseDist::uniform(-1.0, 1.0),
-         compat_non_bool},
+         compat_non_bool_has_zero},
 
         {"heavy_discrete",
          TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::One, 0.3},
                     {SpecialValue::NOne, 0.3}},
          BaseDist::uniform(-100.0, 100.0),
-         compat_non_bool},
+         compat_non_bool_has_zero},
 
         {"int_boundary",
          TensorSpec{{SpecialValue::DTypeMin, 0.5}, {SpecialValue::DTypeMax, 0.5}},
@@ -171,5 +191,6 @@ static std::vector<torch::ScalarType> get_all_dtypes() {
         torch::kBool,
         torch::kFloat8_e4m3fn,
         torch::kFloat8_e5m2,
+        c10::ScalarType::Float8_e8m0fnu,
     };
 }

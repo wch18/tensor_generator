@@ -9,10 +9,16 @@ using namespace detail;
 bool is_valid_for_dtype(SpecialValue sv, torch::ScalarType dtype) {
     switch (sv) {
     case SpecialValue::Zero:
+        // E8M0 cannot represent zero
+        if (dtype == c10::ScalarType::Float8_e8m0fnu) return false;
+        return true;
     case SpecialValue::One:
-    case SpecialValue::NOne:
     case SpecialValue::DTypeMin:
     case SpecialValue::DTypeMax:
+        return true;
+    case SpecialValue::NOne:
+        // E8M0 is unsigned, cannot represent -1
+        if (dtype == c10::ScalarType::Float8_e8m0fnu) return false;
         return true;
     case SpecialValue::NaN:
         return is_float_dtype(dtype);
@@ -60,6 +66,9 @@ double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype) {
         case torch::kFloat8_e4m3fn: return -448.0;
         case torch::kFloat8_e5m2:   return -57344.0;
         default:
+            // E8M0: min = 2^(-127)
+            if (dtype == c10::ScalarType::Float8_e8m0fnu)
+                return 5.877471754111438e-39;
             return 0.0;
         }
 
@@ -78,6 +87,8 @@ double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype) {
         case torch::kFloat8_e4m3fn: return 448.0;
         case torch::kFloat8_e5m2:   return 57344.0;
         default:
+            if (dtype == c10::ScalarType::Float8_e8m0fnu)
+                return 1.7014118346046923e+38;  // 2^127
             if (dtype == c10::ScalarType::UInt16) return 65535.0;
             if (dtype == c10::ScalarType::UInt32) return 4294967295.0;
             if (dtype == c10::ScalarType::UInt64) return 18446744073709551615.0;
@@ -101,7 +112,10 @@ double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype) {
         case torch::kFloat64:       return DBL_EPSILON;
         case torch::kFloat8_e4m3fn: return 0.125;
         case torch::kFloat8_e5m2:   return 0.25;
-        default: return 0.0;
+        default:
+            // E8M0: next after 1.0 is 2.0, so epsilon = 1.0
+            if (dtype == c10::ScalarType::Float8_e8m0fnu) return 1.0;
+            return 0.0;
         }
 
     case SpecialValue::Tiny:
@@ -112,7 +126,11 @@ double get_special_value_as_double(SpecialValue sv, torch::ScalarType dtype) {
         case torch::kFloat64:       return DBL_MIN;
         case torch::kFloat8_e4m3fn: return 0.015625;
         case torch::kFloat8_e5m2:   return 6.103515625e-5;
-        default: return 0.0;
+        default:
+            // E8M0: smallest positive value = 2^(-127)
+            if (dtype == c10::ScalarType::Float8_e8m0fnu)
+                return 5.877471754111438e-39;
+            return 0.0;
         }
     }
     return 0.0;

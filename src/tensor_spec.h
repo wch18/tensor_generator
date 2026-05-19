@@ -101,6 +101,10 @@ struct BaseDist {
 struct DiscreteEntry {
     SpecialValue value;
     double probability;
+
+    DiscreteEntry(SpecialValue v, double p) : value(v), probability(p) {}
+    DiscreteEntry(int v, double p) : value(special_value_from_int(v)), probability(p) {}
+    DiscreteEntry(double v, double p) : value(special_value_from_double(v)), probability(p) {}
 };
 
 struct TensorSpec {

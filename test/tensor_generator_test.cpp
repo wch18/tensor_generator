@@ -795,6 +795,171 @@ TEST(GetScalar, TemplateVersion) {
 }
 
 // ============================================================
+// DiscreteEntry implicit numeric conversion
+// ============================================================
+
+TEST(DiscreteEntryConversion, IntToSpecialValue) {
+    DiscreteEntry e0(0, 0.1);
+    EXPECT_EQ(e0.value, SpecialValue::Zero);
+    EXPECT_DOUBLE_EQ(e0.probability, 0.1);
+
+    DiscreteEntry e1(1, 0.2);
+    EXPECT_EQ(e1.value, SpecialValue::One);
+
+    DiscreteEntry en1(-1, 0.3);
+    EXPECT_EQ(en1.value, SpecialValue::NOne);
+}
+
+TEST(DiscreteEntryConversion, DoubleToSpecialValue) {
+    DiscreteEntry e0(0.0, 0.1);
+    EXPECT_EQ(e0.value, SpecialValue::Zero);
+
+    DiscreteEntry e1(1.0, 0.2);
+    EXPECT_EQ(e1.value, SpecialValue::One);
+
+    DiscreteEntry en1(-1.0, 0.3);
+    EXPECT_EQ(en1.value, SpecialValue::NOne);
+
+    DiscreteEntry enan(std::numeric_limits<double>::quiet_NaN(), 0.1);
+    EXPECT_EQ(enan.value, SpecialValue::NaN);
+
+    DiscreteEntry einf(std::numeric_limits<double>::infinity(), 0.1);
+    EXPECT_EQ(einf.value, SpecialValue::Inf);
+
+    DiscreteEntry eninf(-std::numeric_limits<double>::infinity(), 0.1);
+    EXPECT_EQ(eninf.value, SpecialValue::NInf);
+}
+
+TEST(DiscreteEntryConversion, InvalidIntThrows) {
+    EXPECT_THROW(DiscreteEntry(2, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(-2, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(42, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(100, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(-128, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(std::numeric_limits<int>::max(), 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(std::numeric_limits<int>::min(), 0.1), std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, InvalidDoubleThrows) {
+    EXPECT_THROW(DiscreteEntry(2.0, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(0.5, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(-3.14, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(1e-10, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(DBL_MAX, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(-DBL_MAX, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(DBL_MIN, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(0.999999999, 0.1), std::invalid_argument);
+    EXPECT_THROW(DiscreteEntry(-0.5, 0.1), std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, NegativeZeroMapsToZero) {
+    DiscreteEntry e(-0.0, 0.1);
+    EXPECT_EQ(e.value, SpecialValue::Zero);
+}
+
+TEST(DiscreteEntryConversion, ImplicitZeroOnE8M0Throws) {
+    EXPECT_THROW(
+        generate_tensor({10}, c10::ScalarType::Float8_e8m0fnu, TensorSpec{{0, 0.5}}),
+        std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, ImplicitNOneOnE8M0Throws) {
+    EXPECT_THROW(
+        generate_tensor({10}, c10::ScalarType::Float8_e8m0fnu, TensorSpec{{-1, 0.5}}),
+        std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, ImplicitNaNOnIntegerThrows) {
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kInt32, TensorSpec{{nan, 0.5}}),
+        std::invalid_argument);
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kInt64, TensorSpec{{nan, 0.1}}),
+        std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, ImplicitInfOnNoInfDtypeThrows) {
+    double inf = std::numeric_limits<double>::infinity();
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kFloat8_e4m3fn, TensorSpec{{inf, 0.1}}),
+        std::invalid_argument);
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kInt32, TensorSpec{{inf, 0.1}}),
+        std::invalid_argument);
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kBool, TensorSpec{{inf, 0.1}}),
+        std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, ImplicitNInfOnNoInfDtypeThrows) {
+    double ninf = -std::numeric_limits<double>::infinity();
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kFloat8_e4m3fn, TensorSpec{{ninf, 0.1}}),
+        std::invalid_argument);
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kUInt8, TensorSpec{{ninf, 0.1}}),
+        std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, ImplicitValueNegativeProbThrows) {
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kFloat32, TensorSpec{{0, -0.1}}),
+        std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, ImplicitValueProbExceedsOneThrows) {
+    EXPECT_THROW(
+        generate_tensor({10}, torch::kFloat32, TensorSpec{{0, 0.6}, {1, 0.6}}),
+        std::invalid_argument);
+}
+
+TEST(DiscreteEntryConversion, ExplicitSpecialValueStillWorks) {
+    DiscreteEntry e(SpecialValue::DTypeMax, 0.5);
+    EXPECT_EQ(e.value, SpecialValue::DTypeMax);
+    EXPECT_DOUBLE_EQ(e.probability, 0.5);
+}
+
+TEST(DiscreteEntryConversion, TensorSpecWithImplicitValues) {
+    // {0, 0.1} equivalent to {SpecialValue::Zero, 0.1}
+    TensorSpec spec1{{0, 0.1}};
+    TensorSpec spec2{{SpecialValue::Zero, 0.1}};
+    ASSERT_EQ(spec1.discrete.size(), 1u);
+    EXPECT_EQ(spec1.discrete[0].value, spec2.discrete[0].value);
+    EXPECT_DOUBLE_EQ(spec1.discrete[0].probability, spec2.discrete[0].probability);
+}
+
+TEST(DiscreteEntryConversion, TensorSpecMixedEntries) {
+    TensorSpec spec{{0, 0.3}, {SpecialValue::NaN, 0.2}, {1, 0.1}};
+    ASSERT_EQ(spec.discrete.size(), 3u);
+    EXPECT_EQ(spec.discrete[0].value, SpecialValue::Zero);
+    EXPECT_EQ(spec.discrete[1].value, SpecialValue::NaN);
+    EXPECT_EQ(spec.discrete[2].value, SpecialValue::One);
+}
+
+TEST(DiscreteEntryConversion, GenerateTensorEquivalence) {
+    auto shape = std::vector<int64_t>{10000};
+    auto dtype = torch::kFloat32;
+    int64_t seed = 12345;
+
+    auto t_explicit = generate_tensor(shape, dtype,
+        TensorSpec{{SpecialValue::Zero, 0.3}, {SpecialValue::NaN, 0.2}},
+        BaseDist::uniform(0.0, 1.0), seed);
+
+    auto t_implicit = generate_tensor(shape, dtype,
+        TensorSpec{{0, 0.3}, {std::numeric_limits<double>::quiet_NaN(), 0.2}},
+        BaseDist::uniform(0.0, 1.0), seed);
+
+    EXPECT_TRUE(t_explicit.equal(t_implicit) ||
+                torch::allclose(
+                    t_explicit.nan_to_num(0), t_implicit.nan_to_num(0)));
+
+    auto nan_mask_e = torch::isnan(t_explicit);
+    auto nan_mask_i = torch::isnan(t_implicit);
+    EXPECT_EQ(nan_mask_e.sum().item<int64_t>(), nan_mask_i.sum().item<int64_t>());
+}
+
+// ============================================================
 // main
 // ============================================================
 int main(int argc, char** argv) {

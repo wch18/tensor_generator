@@ -76,6 +76,8 @@ int main() {
         bool match = a1.equal(b1) && a2.equal(b2);
         std::cout << "\n[Mode 3b] two generators same seed: sequences match = "
                   << (match ? "PASS" : "FAIL") << "\n";
+        print_checksums("[Mode 3b]", a1, a2, b1);
+        std::cout << "[Mode 3b] (these checksums must be identical across program runs)\n";
     }
 
     // ================================================================

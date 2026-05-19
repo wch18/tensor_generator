@@ -123,9 +123,11 @@ torch::Tensor generate_tensor(
             break;
         }
         case BaseDistType::Poisson: {
-            // Generate from normal approximation via torch, then use poisson
             auto lambda_tensor = torch::full(shape, base_dist.param1, f64_opts);
-            base = torch::poisson(lambda_tensor);
+            if (gen.defined())
+                base = torch::poisson(lambda_tensor, gen);
+            else
+                base = torch::poisson(lambda_tensor);
             base = base.to(torch::kInt64);
             break;
         }

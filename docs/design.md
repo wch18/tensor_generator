@@ -78,14 +78,16 @@ DiscreteEntry(3.14, 0.1)               // double → raw 值 3.14
 
 | 类型 | 工厂方法 | 参数 | 采样方式 | dtype 限制 |
 |------|----------|------|----------|------------|
-| Uniform | `BaseDist::uniform(lo, hi)` | lo（下界）、hi（上界） | `torch::rand` 线性变换 | 无 |
-| Normal | `BaseDist::normal(mean, std)` | mean（均值）、std（标准差） | `torch::randn` 仿射变换 | 无 |
-| RandInt | `BaseDist::randint(lo, hi)` | lo（含）、hi（不含） | `torch::randint` | 仅整数 |
-| Exponential | `BaseDist::exponential(lambda)` | lambda（速率） | 逆 CDF：`-log1p(-U)/λ` | 无 |
-| Poisson | `BaseDist::poisson(rate)` | rate（λ） | `torch::poisson` | 仅整数 |
-| LogNormal | `BaseDist::lognormal(mean, std)` | mean（对数均值）、std（对数标准差） | `exp(mean + std * Z)` | 无 |
-| Cauchy | `BaseDist::cauchy(median, sigma)` | median（位置）、sigma（尺度） | 逆 CDF：`median + σ·tan(π(U-0.5))` | 无 |
-| Bernoulli | `BaseDist::bernoulli(p)` | p（成功概率） | `U < p` → 1.0, 否则 0.0 | 无 |
+| Uniform | `BaseDist::uniform(lo, hi, [seed])` | lo（下界）、hi（上界） | `torch::rand` 线性变换 | 无 |
+| Normal | `BaseDist::normal(mean, std, [seed])` | mean（均值）、std（标准差） | `torch::randn` 仿射变换 | 无 |
+| RandInt | `BaseDist::randint(lo, hi, [seed])` | lo（含）、hi（不含） | `torch::randint` | 仅整数 |
+| Exponential | `BaseDist::exponential(lambda, [seed])` | lambda（速率） | 逆 CDF：`-log1p(-U)/λ` | 无 |
+| Poisson | `BaseDist::poisson(rate, [seed])` | rate（λ） | `torch::poisson` | 仅整数 |
+| LogNormal | `BaseDist::lognormal(mean, std, [seed])` | mean（对数均值）、std（对数标准差） | `exp(mean + std * Z)` | 无 |
+| Cauchy | `BaseDist::cauchy(median, sigma, [seed])` | median（位置）、sigma（尺度） | 逆 CDF：`median + σ·tan(π(U-0.5))` | 无 |
+| Bernoulli | `BaseDist::bernoulli(p, [seed])` | p（成功概率） | `U < p` → 1.0, 否则 0.0 | 无 |
+
+所有工厂方法的 `[seed]` 参数为 `std::optional<int64_t>`，传入时自动创建隔离的 `torch::Generator`。
 
 ---
 
@@ -347,3 +349,37 @@ struct TestCase {
 | float8_e4m3fn | `torch::kFloat8_e4m3fn` | 8 | 是 | 是（无 inf） |
 | float8_e5m2 | `torch::kFloat8_e5m2` | 8 | 是 | 是 |
 | float8_e8m0fnu | `c10::ScalarType::Float8_e8m0fnu` | 8 | 否 | 是（无零/无穷/无负数，仅 2 的幂次） |
+
+---
+
+## 附录：Seed 设置与 RNG 行为
+
+### 三种 RNG 模式
+
+`generate_tensor` 内部使用 `torch::rand`/`torch::randn`/`torch::randint`/`torch::poisson` 进行随机采样。这些函数可以使用全局 RNG 或隔离的 `torch::Generator`，由此产生三种确定性行为：
+
+| 设置方式 | 示例 | 跨调用 | 跨运行 | RNG 作用域 |
+|----------|------|--------|--------|-----------|
+| `generate_tensor(..., seed=N)` | `generate_tensor(s, dt, spec, dist, 42)` | 每次**相同** | 相同 | 全局（`manual_seed`） |
+| 不传 seed，不用 Generator | `generate_tensor(s, dt, spec, dist)` | 每次**不同** | 不同 | 全局（未重置） |
+| `BaseDist` 工厂方法带 seed | `BaseDist::uniform(0, 1, 42)` | 每次**不同** | 相同 | 隔离 Generator |
+
+### 工作原理
+
+**`generate_tensor` 的 `seed` 参数**每次调用都执行 `torch::manual_seed(seed)`，将全局 RNG 重置到固定状态。因此同参数反复调用始终产生完全相同的张量。缺点是影响全局状态——其他使用 `torch::rand` 的代码也会被重置。
+
+**`BaseDist` 的 `seed` 参数**（或 `with_seed`/`with_generator`）在 `BaseDist` 内部创建一个 `torch::Generator` 实例。该 Generator 的状态在 `generate_tensor` 调用间自动推进，产生不同但确定性的张量序列，且完全不影响全局 RNG。
+
+### 优先级
+
+当 `BaseDist` 携带 Generator 时，`generate_tensor` 的 `seed` 参数无效——所有 RNG 采样（基础张量和选择器张量）均使用隔离的 Generator，不经过全局 RNG。
+
+### 验证
+
+`test_rng_trajectory` 程序验证上述三种模式的行为。运行两次并 diff 输出即可确认跨运行确定性：
+
+```bash
+./test_rng_trajectory > /tmp/run1.txt
+./test_rng_trajectory > /tmp/run2.txt
+diff /tmp/run1.txt /tmp/run2.txt   # 应无差异（Mode 2 除外）
+```

@@ -15,6 +15,9 @@
 //                         LogNormal, Cauchy, Bernoulli.
 //               Can carry a torch::Generator for isolated RNG state.
 //   seed      — optional global RNG seed (calls torch::manual_seed).
+//               When base_dist carries a generator (via seed param or
+//               with_generator/with_seed), all RNG draws use that
+//               isolated generator and this seed has no effect.
 //
 // Throws std::invalid_argument if:
 //   - any entry has a negative probability,

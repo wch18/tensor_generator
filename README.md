@@ -170,17 +170,22 @@ torch::Tensor generate_tensor(
 **BaseDist 构造方式：**
 
 ```cpp
-BaseDist{}                          // Uniform(-1, 1)
-BaseDist::uniform(lo, hi)           // 均匀分布 [lo, hi]
-BaseDist::normal(mean, std)         // 正态分布 N(mean, std)
-BaseDist::randint(lo, hi)           // 整数均匀分布 [lo, hi)
-BaseDist::exponential(lambda)       // 指数分布 Exp(lambda)
-BaseDist::poisson(rate)             // 泊松分布 Poisson(rate)
-BaseDist::lognormal(mean, std)      // 对数正态分布 LogN(mean, std)
-BaseDist::cauchy(median, sigma)     // 柯西分布 Cauchy(median, sigma)
-BaseDist::bernoulli(p)              // 伯努利分布 Bernoulli(p)
-BaseDist(torch::Generator gen)      // 隐式转换：Uniform(-1,1) + generator
-dist.with_generator(gen)            // 为任意分布绑定 generator
+BaseDist{}                              // Uniform(-1, 1)
+BaseDist::uniform(lo, hi)               // 均匀分布 [lo, hi]
+BaseDist::uniform(lo, hi, seed)         // 均匀分布 + 隔离 Generator
+BaseDist::normal(mean, std)             // 正态分布 N(mean, std)
+BaseDist::normal(mean, std, seed)       // 正态分布 + 隔离 Generator
+BaseDist::randint(lo, hi)               // 整数均匀分布 [lo, hi)
+BaseDist::randint(lo, hi, seed)         // 整数均匀分布 + 隔离 Generator
+BaseDist::exponential(lambda)           // 指数分布 Exp(lambda)
+BaseDist::poisson(rate)                 // 泊松分布 Poisson(rate)
+BaseDist::lognormal(mean, std)          // 对数正态分布 LogN(mean, std)
+BaseDist::cauchy(median, sigma)         // 柯西分布 Cauchy(median, sigma)
+BaseDist::bernoulli(p)                  // 伯努利分布 Bernoulli(p)
+// 以上所有工厂方法均可附加可选的末参数 seed（int64_t）
+BaseDist(torch::Generator gen)          // 隐式转换：Uniform(-1,1) + generator
+dist.with_generator(gen)                // 为任意分布绑定 generator
+dist.with_seed(seed)                    // 创建隔离 Generator 并绑定
 ```
 
 **Dtype/BaseDist 兼容性：**
@@ -225,10 +230,24 @@ test/
   tensor_generator_test.cpp         — 1700+ 核心测试用例
   test_configs.h                    — 共享测试配置
   test_convenience_strategies.cpp   — 60 个便捷接口与策略测试
+  test_rng_trajectory.cpp           — RNG 轨迹确定性验证（独立程序，非 gtest）
 docs/
   design.md                — 详细设计文档
 ```
 
-## 许可证
+## 附录：Seed 设置与 RNG 行为
 
-内部使用。
+有三种方式控制随机数生成的确定性，对应不同的使用场景：
+
+| 设置方式 | 跨调用行为 | 跨运行行为 | 适用场景 |
+|----------|------------|------------|----------|
+| `generate_tensor(..., seed=42)` | 每次调用产生**相同**张量 | 相同 | 需要固定某一个张量内容 |
+| 不传 seed，不用 Generator | 每次调用产生**不同**张量 | 不同 | 不关心可复现性 |
+| `BaseDist::uniform(lo, hi, 42)` | 每次调用产生**不同**张量 | 相同 | 需要确定性序列且隔离 RNG |
+
+**说明：**
+
+- `generate_tensor` 的 `seed` 参数每次调用都重置全局 RNG（`torch::manual_seed`），因此同参数反复调用总是得到同一个张量。
+- `BaseDist` 的 `seed` 参数创建隔离的 `torch::Generator`，其状态在调用间自动推进。同一个 `BaseDist` 实例的连续调用产生不同但确定性的张量序列，且不影响全局 RNG。
+- 当 `BaseDist` 携带 Generator 时，`generate_tensor` 的 `seed` 参数无效——所有 RNG 采样均使用隔离的 Generator。
+- 可通过 `test_rng_trajectory` 程序验证上述行为：运行两次并 diff 输出即可确认跨运行确定性。

@@ -6,25 +6,25 @@
 using namespace detail;
 
 static void safe_masked_fill(torch::Tensor& result, const torch::Tensor& mask,
-                             SpecialValue sv, torch::ScalarType dtype) {
+                             const DiscreteValue& dv, torch::ScalarType dtype) {
     if (dtype == torch::kBool) {
-        result.masked_fill_(mask, get_special_value_as_double(sv, dtype) != 0.0);
+        result.masked_fill_(mask, dv.as_double(dtype) != 0.0);
     } else if (is_float_dtype(dtype) && !needs_cast_workaround(dtype)) {
-        result.masked_fill_(mask, get_special_value_as_double(sv, dtype));
+        result.masked_fill_(mask, dv.as_double(dtype));
     } else if (is_float_dtype(dtype)) {
         auto work = result.to(torch::kFloat64);
-        work.masked_fill_(mask, get_special_value_as_double(sv, dtype));
+        work.masked_fill_(mask, dv.as_double(dtype));
         result = work.to(dtype);
     } else if (dtype == c10::ScalarType::UInt64) {
         auto work = result.to(torch::kInt64);
-        work.masked_fill_(mask, get_special_value_as_int64(sv, dtype));
+        work.masked_fill_(mask, dv.as_int64(dtype));
         result = work.to(dtype);
     } else if (needs_cast_workaround(dtype)) {
         auto work = result.to(torch::kFloat64);
-        work.masked_fill_(mask, (double)get_special_value_as_int64(sv, dtype));
+        work.masked_fill_(mask, (double)dv.as_int64(dtype));
         result = work.to(dtype);
     } else {
-        result.masked_fill_(mask, get_special_value_as_int64(sv, dtype));
+        result.masked_fill_(mask, dv.as_int64(dtype));
     }
 }
 
@@ -45,8 +45,8 @@ torch::Tensor generate_tensor(
     for (auto& e : discrete) {
         if (e.probability < 0)
             throw std::invalid_argument("probability must be non-negative");
-        if (!is_valid_for_dtype(e.value, dtype))
-            throw std::invalid_argument("SpecialValue not valid for given dtype");
+        if (!e.value.is_valid_for_dtype(dtype))
+            throw std::invalid_argument("discrete value not valid for given dtype");
         p_sum += e.probability;
     }
     if (p_sum > 1.0 + 1e-9)

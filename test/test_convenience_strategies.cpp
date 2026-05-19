@@ -215,7 +215,7 @@ TEST(RandomStrategy, IntegerDtype) {
     auto cases = random_strategy(10, torch::kInt32);
     for (auto& tc : cases) {
         for (auto& e : tc.spec.discrete) {
-            EXPECT_TRUE(is_valid_for_dtype(e.value, torch::kInt32));
+            EXPECT_TRUE(e.value.is_valid_for_dtype( torch::kInt32));
         }
     }
 }
@@ -224,7 +224,7 @@ TEST(RandomStrategy, EmptyForBoolIfNoValid) {
     auto cases = random_strategy(10, torch::kBool, 1.0, false);
     for (auto& tc : cases) {
         for (auto& e : tc.spec.discrete) {
-            EXPECT_TRUE(is_valid_for_dtype(e.value, torch::kBool));
+            EXPECT_TRUE(e.value.is_valid_for_dtype( torch::kBool));
         }
     }
 }
@@ -383,7 +383,7 @@ TEST(GridSingleValue, FloatCoversAllValid) {
 TEST(GridSingleValue, IntOnlyValidSVs) {
     auto cases = grid_single_value(torch::kInt32);
     for (auto& tc : cases) {
-        EXPECT_TRUE(is_valid_for_dtype(tc.spec.discrete[0].value, torch::kInt32));
+        EXPECT_TRUE(tc.spec.discrete[0].value.is_valid_for_dtype(torch::kInt32));
     }
     EXPECT_EQ((int)cases.size(), 5);
 }
@@ -391,7 +391,7 @@ TEST(GridSingleValue, IntOnlyValidSVs) {
 TEST(GridSingleValue, BoolDtype) {
     auto cases = grid_single_value(torch::kBool);
     for (auto& tc : cases) {
-        EXPECT_TRUE(is_valid_for_dtype(tc.spec.discrete[0].value, torch::kBool));
+        EXPECT_TRUE(tc.spec.discrete[0].value.is_valid_for_dtype(torch::kBool));
     }
 }
 
@@ -436,7 +436,7 @@ TEST(GridFullMix, IntDtype) {
     EXPECT_GE((int)cases.size(), 20);
     for (auto& tc : cases) {
         for (auto& e : tc.spec.discrete)
-            EXPECT_TRUE(is_valid_for_dtype(e.value, torch::kInt32));
+            EXPECT_TRUE(e.value.is_valid_for_dtype( torch::kInt32));
     }
 }
 
@@ -517,7 +517,7 @@ TEST(GridPairwise, BoolDtype) {
     auto cases = grid_pairwise(torch::kBool);
     for (auto& tc : cases) {
         for (auto& e : tc.spec.discrete)
-            EXPECT_TRUE(is_valid_for_dtype(e.value, torch::kBool));
+            EXPECT_TRUE(e.value.is_valid_for_dtype( torch::kBool));
     }
 }
 

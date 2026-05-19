@@ -121,7 +121,7 @@ TEST_P(CartesianTest, GenerateAndVerify) {
     };
     std::vector<ValueGroup> groups;
     for (auto& entry : cfg.spec.discrete) {
-        double v = get_special_value_as_double(entry.value, param.dtype);
+        double v = entry.value.as_double(param.dtype);
         bool found = false;
         for (auto& g : groups) {
             bool same = false;
@@ -830,26 +830,97 @@ TEST(DiscreteEntryConversion, DoubleToSpecialValue) {
     EXPECT_EQ(eninf.value, SpecialValue::NInf);
 }
 
-TEST(DiscreteEntryConversion, InvalidIntThrows) {
-    EXPECT_THROW(DiscreteEntry(2, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(-2, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(42, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(100, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(-128, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(std::numeric_limits<int>::max(), 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(std::numeric_limits<int>::min(), 0.1), std::invalid_argument);
+TEST(DiscreteEntryConversion, RawIntValues) {
+    DiscreteEntry e2(2, 0.1);
+    EXPECT_FALSE(e2.value.is_special());
+    EXPECT_DOUBLE_EQ(e2.value.raw(), 2.0);
+
+    DiscreteEntry e42(42, 0.5);
+    EXPECT_FALSE(e42.value.is_special());
+    EXPECT_DOUBLE_EQ(e42.value.raw(), 42.0);
+
+    DiscreteEntry en128(-128, 0.1);
+    EXPECT_FALSE(en128.value.is_special());
+    EXPECT_DOUBLE_EQ(en128.value.raw(), -128.0);
 }
 
-TEST(DiscreteEntryConversion, InvalidDoubleThrows) {
-    EXPECT_THROW(DiscreteEntry(2.0, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(0.5, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(-3.14, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(1e-10, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(DBL_MAX, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(-DBL_MAX, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(DBL_MIN, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(0.999999999, 0.1), std::invalid_argument);
-    EXPECT_THROW(DiscreteEntry(-0.5, 0.1), std::invalid_argument);
+TEST(DiscreteEntryConversion, RawDoubleValues) {
+    DiscreteEntry e_pi(3.14, 0.1);
+    EXPECT_FALSE(e_pi.value.is_special());
+    EXPECT_DOUBLE_EQ(e_pi.value.raw(), 3.14);
+
+    DiscreteEntry e_half(0.5, 0.2);
+    EXPECT_FALSE(e_half.value.is_special());
+    EXPECT_DOUBLE_EQ(e_half.value.raw(), 0.5);
+
+    DiscreteEntry e_neg(-99.9, 0.1);
+    EXPECT_FALSE(e_neg.value.is_special());
+    EXPECT_DOUBLE_EQ(e_neg.value.raw(), -99.9);
+}
+
+TEST(DiscreteEntryConversion, RawIntGeneratesCorrectly) {
+    auto t = generate_tensor({10000}, torch::kInt32, TensorSpec{{2, 1.0}});
+    EXPECT_TRUE((t == 2).all().item<bool>());
+
+    auto t2 = generate_tensor({10000}, torch::kFloat32, TensorSpec{{42, 0.5}},
+                              BaseDist::uniform(0.0, 1.0), 777);
+    auto count_42 = (t2 == 42.0f).sum().item<int64_t>();
+    EXPECT_GT(count_42, 4000);
+    EXPECT_LT(count_42, 6000);
+}
+
+TEST(DiscreteEntryConversion, RawDoubleGeneratesCorrectly) {
+    auto t = generate_tensor({10000}, torch::kFloat32, TensorSpec{{3.14, 1.0}});
+    EXPECT_TRUE(torch::allclose(t, torch::full({10000}, 3.14f)));
+
+    auto t2 = generate_tensor({10000}, torch::kFloat64,
+                              TensorSpec{{-99.5, 0.3}},
+                              BaseDist::uniform(0.0, 1.0), 888);
+    auto count = (t2 == -99.5).sum().item<int64_t>();
+    EXPECT_GT(count, 2500);
+    EXPECT_LT(count, 3500);
+}
+
+TEST(DiscreteEntryConversion, RawValueMixedWithSpecial) {
+    auto t = generate_tensor({10000}, torch::kFloat32,
+                             TensorSpec{{SpecialValue::NaN, 0.2}, {42, 0.3}},
+                             BaseDist::uniform(0.0, 1.0), 999);
+    auto nan_count = torch::isnan(t).sum().item<int64_t>();
+    auto val42_count = (t == 42.0f).sum().item<int64_t>();
+    EXPECT_GT(nan_count, 1500);
+    EXPECT_LT(nan_count, 2500);
+    EXPECT_GT(val42_count, 2500);
+    EXPECT_LT(val42_count, 3500);
+}
+
+TEST(DiscreteEntryConversion, RawValueOnIntegerDtype) {
+    auto t = generate_tensor({100}, torch::kUInt8, TensorSpec{{200, 1.0}});
+    auto t64 = t.to(torch::kInt64);
+    EXPECT_TRUE((t64 == 200).all().item<bool>());
+}
+
+TEST(DiscreteEntryConversion, RawValueAlwaysValidForDtype) {
+    DiscreteEntry e(42, 0.1);
+    EXPECT_TRUE(e.value.is_valid_for_dtype(torch::kFloat32));
+    EXPECT_TRUE(e.value.is_valid_for_dtype(torch::kInt32));
+    EXPECT_TRUE(e.value.is_valid_for_dtype(torch::kBool));
+    EXPECT_TRUE(e.value.is_valid_for_dtype(torch::kUInt8));
+}
+
+TEST(DiscreteEntryConversion, RawDoubleTruncatesOnIntDtype) {
+    auto t = generate_tensor({100}, torch::kInt32, TensorSpec{{3.14, 1.0}});
+    EXPECT_TRUE((t == 3).all().item<bool>());
+
+    auto t2 = generate_tensor({100}, torch::kInt64, TensorSpec{{-7.9, 1.0}});
+    EXPECT_TRUE((t2 == -7).all().item<bool>());
+}
+
+TEST(DiscreteEntryConversion, RawValueOnBoolDtype) {
+    auto t = generate_tensor({100}, torch::kBool, TensorSpec{{42, 1.0}});
+    EXPECT_TRUE(t.all().item<bool>());
+
+    auto t0 = generate_tensor({100}, torch::kBool, TensorSpec{{0, 1.0}});
+    EXPECT_FALSE(t0.any().item<bool>());
 }
 
 TEST(DiscreteEntryConversion, NegativeZeroMapsToZero) {

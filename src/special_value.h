@@ -30,5 +30,3 @@ torch::Scalar get_scalar(SpecialValue sv) {
     return get_scalar(sv, DType);
 }
 
-SpecialValue special_value_from_int(int v);
-SpecialValue special_value_from_double(double v);

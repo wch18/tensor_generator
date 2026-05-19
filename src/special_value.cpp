@@ -177,27 +177,3 @@ torch::Scalar get_scalar(SpecialValue sv, torch::ScalarType dtype) {
         return get_special_value_as_int64(sv, dtype);
     }
 }
-
-SpecialValue special_value_from_int(int v) {
-    switch (v) {
-    case 0:  return SpecialValue::Zero;
-    case 1:  return SpecialValue::One;
-    case -1: return SpecialValue::NOne;
-    default:
-        throw std::invalid_argument(
-            "no SpecialValue mapping for integer " + std::to_string(v) +
-            "; supported: 0 (Zero), 1 (One), -1 (NOne)");
-    }
-}
-
-SpecialValue special_value_from_double(double v) {
-    if (v == 0.0)  return SpecialValue::Zero;
-    if (v == 1.0)  return SpecialValue::One;
-    if (v == -1.0) return SpecialValue::NOne;
-    if (std::isnan(v))  return SpecialValue::NaN;
-    if (std::isinf(v) && v > 0) return SpecialValue::Inf;
-    if (std::isinf(v) && v < 0) return SpecialValue::NInf;
-    throw std::invalid_argument(
-        "no SpecialValue mapping for double " + std::to_string(v) +
-        "; supported: 0, 1, -1, NaN, +Inf, -Inf");
-}

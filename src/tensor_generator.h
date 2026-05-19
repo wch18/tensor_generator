@@ -8,7 +8,8 @@
 // Parameters:
 //   shape     — desired tensor dimensions.
 //   dtype     — target scalar type.
-//   spec      — discrete distribution (SpecialValue + probability pairs).
+//   spec      — discrete distribution (value + probability pairs).
+//               Values can be SpecialValue enums, int, or double literals.
 //   base_dist — continuous/integer base distribution. Default: Uniform(-1, 1).
 //               Supports: Uniform, Normal, RandInt, Exponential, Poisson,
 //                         LogNormal, Cauchy, Bernoulli.
@@ -17,7 +18,7 @@
 //
 // Throws std::invalid_argument if:
 //   - any entry has a negative probability,
-//   - any SpecialValue is incompatible with dtype,
+//   - any discrete value is incompatible with dtype,
 //   - discrete probabilities sum to more than 1.0 + 1e-9,
 //   - RandInt/Poisson base_dist used with a float or bool dtype.
 torch::Tensor generate_tensor(

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -42,71 +43,85 @@ struct BaseDist {
         : type(BaseDistType::Uniform), param1(-1.0), param2(1.0),
           generator(std::move(gen)) {}
 
-    static BaseDist uniform(double lo, double hi) {
+    static BaseDist uniform(double lo, double hi,
+                            std::optional<int64_t> seed = std::nullopt) {
         BaseDist d;
         d.type = BaseDistType::Uniform;
         d.param1 = lo;
         d.param2 = hi;
-        return d;
+        return seed ? d.with_seed(*seed) : d;
     }
 
-    static BaseDist normal(double mean, double std) {
+    static BaseDist normal(double mean, double std,
+                           std::optional<int64_t> seed = std::nullopt) {
         BaseDist d;
         d.type = BaseDistType::Normal;
         d.param1 = mean;
         d.param2 = std;
-        return d;
+        return seed ? d.with_seed(*seed) : d;
     }
 
-    static BaseDist randint(int64_t lo, int64_t hi) {
+    static BaseDist randint(int64_t lo, int64_t hi,
+                            std::optional<int64_t> seed = std::nullopt) {
         BaseDist d;
         d.type = BaseDistType::RandInt;
         d.param1 = (double)lo;
         d.param2 = (double)hi;
-        return d;
+        return seed ? d.with_seed(*seed) : d;
     }
 
-    static BaseDist exponential(double lambda = 1.0) {
+    static BaseDist exponential(double lambda = 1.0,
+                                std::optional<int64_t> seed = std::nullopt) {
         BaseDist d;
         d.type = BaseDistType::Exponential;
         d.param1 = lambda;
-        return d;
+        return seed ? d.with_seed(*seed) : d;
     }
 
-    static BaseDist poisson(double rate = 1.0) {
+    static BaseDist poisson(double rate = 1.0,
+                            std::optional<int64_t> seed = std::nullopt) {
         BaseDist d;
         d.type = BaseDistType::Poisson;
         d.param1 = rate;
-        return d;
+        return seed ? d.with_seed(*seed) : d;
     }
 
-    static BaseDist lognormal(double mean = 0.0, double std = 1.0) {
+    static BaseDist lognormal(double mean = 0.0, double std = 1.0,
+                              std::optional<int64_t> seed = std::nullopt) {
         BaseDist d;
         d.type = BaseDistType::LogNormal;
         d.param1 = mean;
         d.param2 = std;
-        return d;
+        return seed ? d.with_seed(*seed) : d;
     }
 
-    static BaseDist cauchy(double median = 0.0, double sigma = 1.0) {
+    static BaseDist cauchy(double median = 0.0, double sigma = 1.0,
+                           std::optional<int64_t> seed = std::nullopt) {
         BaseDist d;
         d.type = BaseDistType::Cauchy;
         d.param1 = median;
         d.param2 = sigma;
-        return d;
+        return seed ? d.with_seed(*seed) : d;
     }
 
-    static BaseDist bernoulli(double p = 0.5) {
+    static BaseDist bernoulli(double p = 0.5,
+                              std::optional<int64_t> seed = std::nullopt) {
         BaseDist d;
         d.type = BaseDistType::Bernoulli;
         d.param1 = p;
-        return d;
+        return seed ? d.with_seed(*seed) : d;
     }
 
     BaseDist with_generator(torch::Generator gen) const {
         BaseDist copy = *this;
         copy.generator = std::move(gen);
         return copy;
+    }
+
+    BaseDist with_seed(int64_t seed) const {
+        auto gen = at::detail::createCPUGenerator();
+        gen.set_current_seed(seed);
+        return with_generator(std::move(gen));
     }
 };
 

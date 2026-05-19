@@ -52,3 +52,16 @@ target_link_libraries(test_convenience_strategies
     ${TORCH_LIBRARIES}
     pthread
 )
+
+# RNG trajectory test (standalone, not gtest)
+add_executable(test_rng_trajectory
+    test/test_rng_trajectory.cpp
+)
+target_include_directories(test_rng_trajectory PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(test_rng_trajectory
+    tensor_generator_lib
+    ${TORCH_LIBRARIES}
+    pthread
+)
